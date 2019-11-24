@@ -96,6 +96,7 @@ import FindZeroCrossings;
 import Flags;
 import FlagsUtil;
 import Global;
+import HashTableIntTplToEdgeMark;
 import HpcOmEqSystems;
 import IndexReduction;
 import Initialization;
@@ -7771,6 +7772,91 @@ algorithm
     then fail();
   end matchcontinue;
 end causalizeDAEWork;
+
+public function getAdjacencyMatrixLinearMatchingEqSyst
+"author: kabdelhak"
+  input BackendDAE.EqSystem syst;
+  input BackendDAE.Shared shared;
+  output BackendDAE.AdjacencyMatrixLinearMatching adjacencyMatrixLM;
+protected
+  BackendDAE.AdjacencyMatrix solvable, normal, normalT;
+algorithm
+  (_, solvable, _, _, _) := getIncidenceMatrixScalar(syst, BackendDAE.SOLVABLE(), SOME(shared.functionTree));
+  (_, normal, normalT, _, _) := getIncidenceMatrixScalar(syst, BackendDAE.NORMAL(), SOME(shared.functionTree));
+  adjacencyMatrixLM := getAdjacencyMatrixLinearMatching(solvable, normal, normalT);
+end getAdjacencyMatrixLinearMatchingEqSyst;
+
+public function getAdjacencyMatrixLinearMatching
+"author: kabdelhak"
+  input BackendDAE.AdjacencyMatrix solvable;
+  input BackendDAE.AdjacencyMatrix normal;
+  input BackendDAE.AdjacencyMatrixT normalT;
+  output BackendDAE.AdjacencyMatrixLinearMatching adjacencyMatrixLM;
+protected
+  array<Boolean> nodeMarksEqs, nodeMarksVars;
+  HashTableIntTplToEdgeMark.HashTable ht;
+algorithm
+  nodeMarksEqs := arrayCreate(arrayLength(normal), false);
+  nodeMarksVars := arrayCreate(arrayLength(normalT), false);
+  /* overestimate number of edges with #eqs * #vars --- possibly to big, needs update! */
+  ht := HashTableIntTplToEdgeMark.emptyHashTableSized(Util.nextPrime(arrayLength(normal)*arrayLength(normalT)));
+  ht := fillHashTableIntTplToEdgeMark(ht, solvable, normal);
+  adjacencyMatrixLM := (normal, normalT, nodeMarksEqs, nodeMarksVars, ht);
+end getAdjacencyMatrixLinearMatching;
+
+public function fillHashTableIntTplToEdgeMark
+"author: kabdelhak"
+  input output HashTableIntTplToEdgeMark.HashTable ht;
+  input BackendDAE.AdjacencyMatrix solvable;
+  input BackendDAE.AdjacencyMatrix normal;
+algorithm
+  /*
+    loop over solvable adjacency matrix and add all edges
+    to hash table as unprocessed.
+  */
+  BackendDump.dumpIncidenceMatrix(solvable);
+  for i in 1:arrayLength(solvable) loop
+    for j in solvable[i] loop
+      ht := BaseHashTable.add(((i, intAbs(j)), BackendDAE.MARK_UNPROCESSED()), ht);
+    end for;
+  end for;
+
+  /*
+    loop over normal adjacency matrix and add all edges
+    which are not jet added to hash table as strictly unmatched.
+  */
+  for i in 1:arrayLength(normal) loop
+    for j in normal[i] loop
+      if not BaseHashTable.hasKey((i, intAbs(j)), ht) then
+        ht := BaseHashTable.add(((i, intAbs(j)), BackendDAE.MARK_STRICTLY_UNMATCHED()), ht);
+      end if;
+    end for;
+  end for;
+end fillHashTableIntTplToEdgeMark;
+
+public function isMatchedOrLoopEdge
+  input BackendDAE.EdgeMark mark;
+  output Boolean res;
+algorithm
+  res := match mark
+    case BackendDAE.MARK_STRICTLY_MATCHED() then true;
+    case BackendDAE.MARK_LOOP_EDGE() then true;
+    else false;
+  end match;
+end isMatchedOrLoopEdge;
+
+public function getLoopNodes
+  input BackendDAE.EdgeMark mark;
+  output list<Integer> loopEqs;
+  output list<Integer> loopVars;
+algorithm
+  (loopEqs, loopVars) := match mark
+    local
+      list<Integer> le, lv;
+    case BackendDAE.MARK_LOOP_EDGE(le, lv) then (le, lv);
+    else ({}, {});
+  end match;
+end getLoopNodes;
 
 protected function stateDeselectionDAE
   input BackendDAE.BackendDAE inDAE;

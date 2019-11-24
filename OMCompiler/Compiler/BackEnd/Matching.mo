@@ -56,7 +56,9 @@ import DumpGraphML;
 import ElementSource;
 import Error;
 import Expression;
+import ExpressionDump;
 import Flags;
+import HashTableIntTplToEdgeMark;
 import IndexReduction;
 import Inline;
 import List;
@@ -296,6 +298,377 @@ algorithm
     end if;
   end for;
 end invertMatching;
+
+public function LinearMatching
+"author: kabdelhak"
+  input BackendDAE.EqSystem syst;
+  input BackendDAE.Shared shared;
+protected
+  BackendDAE.AdjacencyMatrix normal, normalT;
+  array<Boolean> nodeMarksEqs, nodeMarksVars;
+  HashTableIntTplToEdgeMark.HashTable ht;
+  List<tuple<Integer, Integer>> stack, msss_stack;
+  Integer lastStart = 0, iterator_eq, iterator_var;
+  tuple<Integer, Integer> edge;
+  Boolean closing_loop, matched = false;
+  array<Integer> mapping_eqs, mapping_vars;
+  Boolean debug = true;
+algorithm
+  (normal, normalT, nodeMarksEqs, nodeMarksVars, ht) := BackendDAEUtil.getAdjacencyMatrixLinearMatchingEqSyst(syst, shared);
+  if debug or true then
+    BackendDump.dumpEqSystem(syst, "syst");
+    BackendDump.dumpAdjacencyMatrixLinearMatching((normal, normalT, nodeMarksEqs, nodeMarksVars, ht), "initial matrix", true);
+    print("test\n");
+  end if;
+
+  (mapping_eqs, mapping_vars) := initializeLinearMatchingMapping(arrayLength(nodeMarksEqs), arrayLength(nodeMarksVars));
+
+  /* loop only breaks if no new starting point can be found */
+  while true loop
+    /* starting point, get first eq, var and initialize stacks with first edge */
+    // kabdelhak RESET MARKINGS -> msss all marked nodes. no msss_stack / msss_mark?
+    matched := false;
+    (iterator_eq, iterator_var, nodeMarksEqs, nodeMarksVars, stack, msss_stack, ht) := initializeStacks(lastStart, nodeMarksEqs, nodeMarksVars, ht, normal);
+    lastStart := iterator_eq;
+    if iterator_eq == -1 then
+      break;
+    elseif debug then
+      print("Starting point: EQ: " + intString(iterator_eq) + " and VAR: " + intString(iterator_var) + "\n");
+    end if;
+
+    /* iterate for as long as something is on the stack */
+    while true loop
+      /* - edge var -> eq - */
+      if matched then
+        (iterator_eq, _) :: stack := stack;
+        matched := false;
+        if debug then print("remove last edge from stack and start from eq: " + intString(iterator_eq) + "\n"); end if;
+      else
+        nodeMarksVars[iterator_var] := true;
+        (iterator_eq, edge, closing_loop) := getFirstUnprocessedUnique(normalT[iterator_var], iterator_var, ht, nodeMarksEqs, true);
+
+        if debug then print("[" + boolString(true) + "] found unique: " + intString(iterator_eq) + "\n"); end if;
+
+        iterator_eq := if iterator_eq == -1 then iterator_eq else mapping_eqs[iterator_eq];
+        (iterator_eq, normal, normalT, stack, msss_stack, mapping_eqs, mapping_vars, ht, matched) := updateStacks(iterator_eq, edge, closing_loop, true, normal, normalT, stack, msss_stack, mapping_eqs, mapping_vars, ht);
+
+        if debug then
+          print("[" + boolString(true) + "] iterator after update stacks: " + intString(iterator_eq) + "\n");
+          BackendDump.dumpAdjacencyMatrixLinearMatching((normal, normalT, nodeMarksEqs, nodeMarksVars, ht), "mid dump", true);
+        end if;
+      end if;
+
+      /* break while loop if no edge is on the stack and current node is matched */
+      if listEmpty(stack) and iterator_eq == -1 then
+        break;
+      elseif debug then
+        print(ExpressionDump.printListStr(stack, BackendDump.intTplString, " | ") + "\n");
+      end if;
+
+      /* - edge eq -> var - */
+      if matched then
+        (_, iterator_var) :: stack := stack;
+        matched := false;
+        if debug then print("remove last edge from stack and start from var: " + intString(iterator_var) + "\n"); end if;
+      else
+        nodeMarksEqs[iterator_eq] := true;
+        (iterator_var, edge, closing_loop) := getFirstUnprocessedUnique(normal[iterator_eq], iterator_eq, ht, nodeMarksVars, false);
+
+        if debug then print("[" + boolString(false) + "] found unique: " + intString(iterator_var) + "\n"); end if;
+
+        iterator_var := if iterator_var == -1 then iterator_var else mapping_vars[iterator_var];
+        (iterator_var, normal, normalT, stack, msss_stack, mapping_eqs, mapping_vars, ht, matched) := updateStacks(iterator_var, edge, closing_loop, false, normal, normalT, stack, msss_stack, mapping_eqs, mapping_vars, ht);
+
+        if debug then
+          print("[" + boolString(false) + "] iterator after update stacks: " + intString(iterator_var) + "\n");
+          BackendDump.dumpAdjacencyMatrixLinearMatching((normal, normalT, nodeMarksEqs, nodeMarksVars, ht), "mid dump", true);
+        end if;
+      end if;
+
+      /* break while loop if no edge is on the stack */
+      if listEmpty(stack) and iterator_var == -1 then
+        break;
+      elseif debug then
+        print(ExpressionDump.printListStr(stack, BackendDump.intTplString, " | ") + "\n");
+      end if;
+    end while;
+
+  end while;
+
+  if debug or true then
+    BackendDump.dumpAdjacencyMatrixLinearMatching((normal, normalT, nodeMarksEqs, nodeMarksVars, ht), "final matrix", false);
+  end if;
+end LinearMatching;
+
+protected function initializeLinearMatchingMapping
+"author: kabdelhak"
+  input Integer eqSize;
+  input Integer varSize;
+  output array<Integer> eqMapping;
+  output array<Integer> varMapping;
+algorithm
+  eqMapping := arrayCreate(eqSize, 0);
+  for i in 1:eqSize loop
+    eqMapping[i] := i;
+  end for;
+  varMapping := arrayCreate(varSize, 0);
+  for i in 1:varSize loop
+    varMapping[i] := i;
+  end for;
+end initializeLinearMatchingMapping;
+
+protected function initializeStacks
+"author: kabdelhak"
+  input Integer lastStart;
+  output Integer iterator_eq;
+  output Integer iterator_var;
+  input output array<Boolean> nodeMarksEqs;
+  input output array<Boolean> nodeMarksVars;
+  output list<tuple<Integer, Integer>> stack;
+  output list<tuple<Integer, Integer>> msss_stack;
+  input output HashTableIntTplToEdgeMark.HashTable ht;
+  input BackendDAE.AdjacencyMatrix normal;
+protected
+  tuple<Integer, Integer> edge;
+algorithm
+  iterator_eq := getNextStartingNode(lastStart, nodeMarksEqs);
+  if iterator_eq == -1 then
+    iterator_var := -1;
+    stack := {};
+    msss_stack := {};
+    return;
+  else
+    nodeMarksEqs[iterator_eq] := true;
+    iterator_var :: _ := normal[iterator_eq];
+    edge := (iterator_eq, intAbs(iterator_var));
+    stack := {edge};
+    msss_stack := {edge};
+    ht := BaseHashTable.add((edge, BackendDAE.MARK_VISITED()), ht);
+  end if;
+end initializeStacks;
+
+protected function getNextStartingNode
+"author: kabdelhak"
+  input Integer lastStart;
+  input array<Boolean> nodeMarksEqs;
+  output Integer nextStart = -1;
+algorithm
+  for i in (lastStart + 1) : arrayLength(nodeMarksEqs) loop
+    if not nodeMarksEqs[i] then
+      nextStart := i;
+      return;
+    end if;
+  end for;
+end getNextStartingNode;
+
+protected function getFirstUnprocessedUnique
+"author: kabdelhak"
+  input list<Integer> row;
+  input Integer idx;
+  input HashTableIntTplToEdgeMark.HashTable ht;
+  input array<Boolean> nodeMarks;
+  input Boolean transposed;
+  output Integer unprocessed;
+  output tuple<Integer, Integer> edge;
+  output Boolean closing_loop = false;
+protected
+  Integer i_abs;
+algorithm
+  for i in row loop
+    i_abs := intAbs(i);
+    edge := if transposed then (i_abs, idx) else (idx, i_abs);
+    _ := match BaseHashTable.get(edge, ht)
+      case BackendDAE.MARK_UNPROCESSED() guard(not nodeMarks[i_abs])
+        algorithm
+          unprocessed := i_abs;
+          return;
+      then 0;
+      else 0;
+    end match;
+  end for;
+
+  unprocessed := -1;
+end getFirstUnprocessedUnique;
+
+protected function getFirstUnprocessedOrClosingUnmatchable
+"author: kabdelhak"
+  input list<Integer> row;
+  input Integer idx;
+  input HashTableIntTplToEdgeMark.HashTable ht;
+  input array<Boolean> nodeMarks;
+  input Boolean transposed;
+  output Integer unprocessed;
+  output tuple<Integer, Integer> edge;
+  output Boolean closing_loop = false;
+protected
+  Integer i_abs;
+algorithm
+  for i in row loop
+    i_abs := intAbs(i);
+    edge := if transposed then (i_abs, idx) else (idx, i_abs);
+    _ := match BaseHashTable.get(edge, ht)
+      case BackendDAE.MARK_UNPROCESSED()
+        algorithm
+          unprocessed := i_abs;
+          closing_loop := nodeMarks[i_abs];
+          return;
+      then 0;
+      case BackendDAE.MARK_STRICTLY_UNMATCHED()
+        guard(nodeMarks[i_abs])
+        algorithm
+          unprocessed := i_abs;
+          closing_loop := true;
+          return;
+      then 0;
+      else 0;
+    end match;
+  end for;
+
+  /*
+    return -1 or -2 if no edge could be found
+    -1: last edge on the stack has to be a matching edge
+    -2: current stack is structurally singular
+  */
+  unprocessed := if transposed then -1 else -1;
+end getFirstUnprocessedOrClosingUnmatchable;
+
+protected function updateStacks
+  input output Integer iterator;
+  input tuple<Integer, Integer> edge;
+  input Boolean closing_loop;
+  input Boolean transposed;
+  input output BackendDAE.AdjacencyMatrix normal;
+  input output BackendDAE.AdjacencyMatrix normalT;
+  input output list<tuple<Integer, Integer>> stack;
+  input output list<tuple<Integer, Integer>> msss_stack;
+  input output array<Integer> mapping_eqs;
+  input output array<Integer> mapping_vars;
+  input output HashTableIntTplToEdgeMark.HashTable ht;
+  output Boolean matched = false;
+protected
+  tuple<Integer, Integer> last_edge;
+  Integer idx, super_eq_idx, super_var_idx;
+  list<Integer> superNodeEqs, superNodeVars, superNodeEqEdges, superNodeVarEdges;
+  Boolean debug = false;
+  Integer eq_print, var_print;
+algorithm
+  if iterator == -1 then
+    /* matching edge found */
+    (iterator, idx) :: stack := stack;
+    if debug then
+      print("Strictly matching edge found: (" + intString(iterator) + "," + intString(idx) +")\n");
+    end if;
+    ht := BaseHashTable.add(((iterator, idx), BackendDAE.MARK_STRICTLY_MATCHED()), ht);
+
+    /* set all other connected edges to unmatchable */
+    for i in normal[iterator] loop
+      if intAbs(i) <> idx then
+        ht := BaseHashTable.add(((iterator, intAbs(i)), BackendDAE.MARK_STRICTLY_UNMATCHED()), ht);
+      end if;
+    end for;
+    for i in normalT[idx] loop
+      if intAbs(i) <> iterator then
+        ht := BaseHashTable.add(((intAbs(i), idx), BackendDAE.MARK_STRICTLY_UNMATCHED()), ht);
+      end if;
+    end for;
+
+    /* update iterator and remove edge from stack */
+    if listEmpty(stack) then
+      iterator := -1;
+    end if;
+
+    matched := true;
+
+  elseif iterator == -2 then
+    /* structural singularity detected */
+    if debug then
+      print("Structural singularity found.\n");
+    end if;
+    // traverse full msss stack! traverse further to get full msss!
+    // ht := BaseHashTable.add((last_edge, BackendDAE.MARK_MSSS_EDGE()), ht);
+    // (_, iterator) := last_edge;
+  elseif closing_loop then
+    /* current edge will be the loop edge and both nodes become super nodes */
+    (super_eq_idx, super_var_idx) := edge;
+    /* remove last edge on the stack */
+    _ :: stack := stack;
+    /* pop stack for algebraic loop */
+    (stack, mapping_eqs, mapping_vars, superNodeEqs, superNodeVars, superNodeEqEdges, superNodeVarEdges) := popStackAlgebraicLoop(stack, mapping_eqs, mapping_vars, {}, {}, {}, {}, normal, normalT, ht, super_eq_idx, super_var_idx);
+    /* update adjacency matrix entries of super nodes */
+    normal[super_eq_idx] := List.unique(listAppend(superNodeVars, normal[super_eq_idx]));
+    normalT[super_var_idx] := List.unique(listAppend(superNodeEqs, normalT[super_var_idx]));
+    /* add loop edge mark */
+    ht := BaseHashTable.add((edge, BackendDAE.MARK_LOOP_EDGE(superNodeEqs, superNodeVars)), ht);
+    /* update iterator */
+    iterator := if transposed then super_var_idx else super_eq_idx;
+
+    if debug then
+      (eq_print, var_print) := edge;
+      print("Loop edge found: (" + intString(eq_print) + "," + intString(var_print) +")\n");
+    end if;
+  else
+    /* update the stacks and hash table value */
+    if debug then
+      (eq_print, var_print) := edge;
+      print("Edge added to stack: (" + intString(eq_print) + "," + intString(var_print) +")\n");
+    end if;
+    stack := edge :: stack;
+    msss_stack := edge :: msss_stack;
+    ht := BaseHashTable.add((edge, BackendDAE.MARK_VISITED()), ht);
+  end if;
+end updateStacks;
+
+protected function popStackAlgebraicLoop
+  input output list<tuple<Integer, Integer>> stack;
+  input output array<Integer> mapping_eqs;
+  input output array<Integer> mapping_vars;
+  input output list<Integer> superNodeEqs;
+  input output list<Integer> superNodeVars;
+  input output list<Integer> superNodeEqEdges;
+  input output list<Integer> superNodeVarEdges;
+  input BackendDAE.AdjacencyMatrix normal;
+  input BackendDAE.AdjacencyMatrixT normalT;
+  input HashTableIntTplToEdgeMark.HashTable ht;
+  input Integer super_eq_idx;
+  input Integer super_var_idx;
+protected
+  Integer eq_idx, var_idx;
+  list<Integer> loopEqs, loopVars;
+algorithm
+  (eq_idx, var_idx) :: stack := stack;
+
+  /* check if edge is loop edge and add all loop equations and variables */
+  (loopEqs, loopVars) := BackendDAEUtil.getLoopNodes(BaseHashTable.get((eq_idx, var_idx), ht));
+  superNodeEqs := listAppend(loopEqs, superNodeEqs);
+  superNodeVars := listAppend(loopVars, superNodeVars);
+
+  /* add current eq and var */
+  superNodeEqs := eq_idx :: superNodeEqs;
+  superNodeVars := var_idx :: superNodeVars;
+
+  /* collect all adjacency matrix information to update supernodes */
+  superNodeEqEdges := listAppend(superNodeEqEdges, normalT[var_idx]);
+  superNodeVarEdges := listAppend(superNodeVarEdges, normal[eq_idx]);
+
+  /* redirect all nodes in loops to super node */
+  mapping_eqs[eq_idx] := super_eq_idx;
+  mapping_vars[var_idx] := super_var_idx;
+
+  (eq_idx, var_idx) :: stack := stack;
+  /* check if edge is loop edge and add all loop equations and variables */
+  (loopEqs, loopVars) := BackendDAEUtil.getLoopNodes(BaseHashTable.get((eq_idx, var_idx), ht));
+  superNodeEqs := listAppend(loopEqs, superNodeEqs);
+  superNodeVars := listAppend(loopVars, superNodeVars);
+
+  /* check if next edge closes the loop */
+  if (eq_idx == super_eq_idx) or (var_idx == super_var_idx) then
+    return;
+  else
+    /* recursion */
+    (stack, mapping_eqs, mapping_vars, superNodeEqs, superNodeVars, superNodeEqEdges, superNodeVarEdges)
+      := popStackAlgebraicLoop(stack, mapping_eqs, mapping_vars, superNodeEqs, superNodeVars, superNodeEqEdges, superNodeVarEdges, normal, normalT, ht, super_eq_idx, super_var_idx);
+  end if;
+end popStackAlgebraicLoop;
 
 // =============================================================================
 // Matching Algorithms
@@ -5612,6 +5985,10 @@ algorithm
         (ass1,ass2,isyst,ishared,inArg);
     case ({},false,BackendDAE.EQSYSTEM(m=SOME(m),mT=SOME(mt)),_)
       algorithm
+        /* try linear matching, experimental! */
+        LinearMatching(isyst, ishared);
+
+
         matchingExternalsetIncidenceMatrix(nv,ne,m);
         BackendDAEEXT.matching(nv,ne,algIndx,cheapMatching,1.0,clearMatching);
         BackendDAEEXT.getAssignment(ass1,ass2);

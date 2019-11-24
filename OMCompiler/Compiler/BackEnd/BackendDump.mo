@@ -3728,7 +3728,7 @@ algorithm
   str := "(" + intString(sz) + "," + str + "%)" + " " + intString(others);
 end sizeNumNonZeroTornTplString;
 
-protected function intTplString
+public function intTplString
   input tuple<Integer,Integer> inTpl;
   output String outStr;
 protected
@@ -4732,6 +4732,108 @@ algorithm
   dumpVarList(inDAEmodeData.stateVars, "State Variables");
   dumpVarList(inDAEmodeData.algStateVars, "Algebraic State Variables");
 end dumpBackendDAEModeData;
+
+public function edgeMarkStr
+  input BackendDAE.EdgeMark mark;
+  output String str;
+algorithm
+  str := match mark
+    local
+      String s = "#-# EdgeMark: ";
+    case BackendDAE.MARK_UNPROCESSED() then        s + "MARK_UNPROCESSED        #-#";
+    case BackendDAE.MARK_VISITED() then            s + "MARK_VISITED            #-#";
+    case BackendDAE.MARK_STRICTLY_MATCHED() then   s + "MARK_STRICTLY_MATCHED   #-#";
+    case BackendDAE.MARK_STRICTLY_UNMATCHED() then s + "MARK_STRICTLY_UNMATCHED #-#";
+    case BackendDAE.MARK_LOOP_EDGE() then          s + "MARK_LOOP_EDGE          #-#";
+    case BackendDAE.MARK_MSSS_EDGE() then          s + "MARK_MSSS_EDGE          #-#";
+  end match;
+end edgeMarkStr;
+
+public function edgeMarkStr2
+  input BackendDAE.EdgeMark mark;
+  input tuple<Integer, Integer> edge;
+  output String str;
+protected
+  Integer eq_idx, var_idx;
+algorithm
+  (eq_idx, var_idx) := edge;
+  str := match mark
+    local
+      String s = "#-# (" + intString(eq_idx) + "," + intString(var_idx) + "): ";
+      list<Integer> loopEqs, loopVars;
+    case BackendDAE.MARK_UNPROCESSED() then        s + "MARK_UNPROCESSED        #-#";
+    case BackendDAE.MARK_VISITED() then            s + "MARK_VISITED            #-#";
+    case BackendDAE.MARK_STRICTLY_MATCHED() then   s + "MARK_STRICTLY_MATCHED   #-#";
+    case BackendDAE.MARK_STRICTLY_UNMATCHED() then s + "MARK_STRICTLY_UNMATCHED #-#";
+    case BackendDAE.MARK_LOOP_EDGE(loopEqs, loopVars)
+      then s + "MARK_LOOP_EDGE          #-# {(" + ExpressionDump.printListStr(loopEqs, intString, ",") + "), (" + ExpressionDump.printListStr(loopVars, intString, ",") + ")}";
+    case BackendDAE.MARK_MSSS_EDGE() then          s + "MARK_MSSS_EDGE          #-#";
+  end match;
+end edgeMarkStr2;
+
+public function dumpAdjacencyMatrixLinearMatching
+  input BackendDAE.AdjacencyMatrixLinearMatching m;
+  input String heading = "";
+  input Boolean full = false;
+protected
+  BackendDAE.AdjacencyMatrix normal, normalT;
+  array<Boolean> eqMarks, varMarks;
+  HashTableIntTplToEdgeMark.HashTable ht;
+algorithm
+  print(BORDER + "\n AdjacencyMatrixLinearMatching: " + heading + "\n" + BORDER + "\n\n");
+  (normal, normalT, eqMarks, varMarks, ht) := m;
+  dumpAdjacencyMatrixLinearMatchingEdges(normal, ht, full);
+  print("\n");
+  dumpAdjacencyMatrixLinearMatchingNodes(eqMarks, varMarks);
+end dumpAdjacencyMatrixLinearMatching;
+
+public function dumpAdjacencyMatrixLinearMatchingEdges
+  input BackendDAE.AdjacencyMatrix normal;
+  input HashTableIntTplToEdgeMark.HashTable ht;
+  input Boolean full = false;
+protected
+  BackendDAE.EdgeMark mark;
+algorithm
+  for i in 1:arrayLength(normal) loop
+    for j in normal[i] loop
+      mark := BaseHashTable.get((i,intAbs(j)), ht);
+      if full or BackendDAEUtil.isMatchedOrLoopEdge(mark) then
+        print(edgeMarkStr2(mark, (i,intAbs(j))) + "\n");
+      end if;
+    end for;
+  end for;
+end dumpAdjacencyMatrixLinearMatchingEdges;
+
+public function dumpAdjacencyMatrixLinearMatchingNodes
+  input array<Boolean> eqMarks;
+  input array<Boolean> varMarks;
+protected
+  list<Integer> eq_marked = {}, eq_unmarked = {}, var_marked = {}, var_unmarked = {};
+algorithm
+  for i in 1:arrayLength(eqMarks) loop
+    if eqMarks[i] then
+      eq_marked := i :: eq_marked;
+    else
+      eq_unmarked := i :: eq_unmarked;
+    end if;
+  end for;
+
+  for i in 1:arrayLength(varMarks) loop
+    if varMarks[i] then
+      var_marked := i :: var_marked;
+    else
+      var_unmarked := i :: var_unmarked;
+    end if;
+  end for;
+
+  print("Equations:\n" + UNDERLINE + "\n");
+  print("Marked   : {" + ExpressionDump.printListStr(eq_marked, intString, ", ") + "}\n");
+  print("Unmarked : {" + ExpressionDump.printListStr(eq_unmarked, intString, ", ") + "}\n\n");
+
+  print("Variables:\n" + UNDERLINE + "\n");
+  print("Marked   : {" + ExpressionDump.printListStr(var_marked, intString, ", ") + "}\n");
+  print("Unmarked : {" + ExpressionDump.printListStr(var_unmarked, intString, ", ") + "}\n\n");
+end dumpAdjacencyMatrixLinearMatchingNodes;
 
 annotation(__OpenModelica_Interface="backend");
 end BackendDump;

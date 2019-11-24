@@ -43,6 +43,7 @@ import ExpandableArray;
 import FCore;
 import HashTable3;
 import HashTableCG;
+import HashTableIntTplToEdgeMark;
 import MMath;
 import SCode;
 import ZeroCrossings;
@@ -718,6 +719,27 @@ uniontype Solvability
   record SOLVABILITY_SOLVABLE "It is possible to solve the equation for the variable, it is not considered
                      how the variable occurs in the equation." end SOLVABILITY_SOLVABLE;
 end Solvability;
+
+type AdjacencyMatrixLinearMatching = tuple<AdjacencyMatrix, AdjacencyMatrixT, array<Boolean>, array<Boolean>, HashTableIntTplToEdgeMark.HashTable>;
+
+/*
+  Edge marks for linear matching
+  Once an edge is assigned any mark other than MARK_UNPROCESSED, MARK_VISITED or MARK_MSSS_EDGE
+  it will never be changed again. An exception to this rule is MARK_MSSS_EDGE which may override
+  everything on the current stack because they will be changed by index reduction.
+*/
+public
+uniontype EdgeMark
+  record MARK_UNPROCESSED "edge has not been visited jet" end MARK_UNPROCESSED;
+  record MARK_VISITED "edge is on the stack" end MARK_VISITED;
+  record MARK_STRICTLY_MATCHED "edge is strictly matched." end MARK_STRICTLY_MATCHED;
+  record MARK_STRICTLY_UNMATCHED "edge is strictly unmatched." end MARK_STRICTLY_UNMATCHED;
+  record MARK_LOOP_EDGE "edge is part of an algebraic loop"
+    list<Integer> loopEqs;
+    list<Integer> loopVars;
+  end MARK_LOOP_EDGE;
+  record MARK_MSSS_EDGE "edge is part of an minimal structurally singular subset" end MARK_MSSS_EDGE;
+end EdgeMark;
 
 public
 type Constraints = list<.DAE.Constraint> "Constraints on the solvability of the (casual) tearing set; needed for proper Dynamic Tearing";
