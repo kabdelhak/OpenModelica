@@ -57,6 +57,7 @@ import Autoconf;
 import AvlSetString;
 import BackendDAECreate;
 import BackendDump;
+import BackendStructure = NBackendDAE.BackendStructure;
 import BackendVariable;
 import Builtin;
 import ClockIndexes;
@@ -86,6 +87,8 @@ import Error;
 import ErrorExt;
 import ExecStat;
 import Flags;
+import FlatModel = NFFlatModel;
+import FunctionTree = NFFlatten.FunctionTree;
 import FMI;
 import GC;
 import HashTable;
@@ -94,6 +97,7 @@ import HashTableCrIListArray;
 import HashTableCrILst;
 import HpcOmSimCodeMain;
 import HpcOmTaskGraph;
+import NBackendDAECreate;
 import RuntimeSources;
 import SerializeModelInfo;
 import TaskSystemDump;
@@ -922,7 +926,7 @@ protected
 algorithm
   FlagsUtil.setConfigBool(Flags.BUILDING_MODEL, true);
   (success, outStringLst, outFileDir) :=
-  matchcontinue (inEnv, className, inFileNamePrefix, addDummy, inSimSettingsOpt, args)
+  matchcontinue (inEnv,inFileNamePrefix)
     local
       String filenameprefix, file_dir, resstr, description;
       DAE.DAElist dae, dae1;
@@ -942,7 +946,38 @@ algorithm
       DAE.FunctionTree funcs;
       list<Option<Integer>> allRoots;
 
-    case (graph, _, filenameprefix, _, _, _) algorithm
+      FlatModel flatModel;
+      FunctionTree funcTree;
+
+      BackendStructure bdae;
+
+    /* new backend - also activates new frontend by default */
+    case (graph, filenameprefix) guard(Flags.getConfigBool(Flags.NEW_BACKEND))
+      algorithm
+        // calculate stuff that we need to create SimCode data structure
+
+        /* ================================
+                       FRONTEND
+        ================================ */
+        System.realtimeTick(ClockIndexes.RT_CLOCK_FRONTEND);
+        ExecStat.execStatReset();
+        (SOME(flatModel), SOME(funcTree)) := CevalScriptBackend.runNewFrontEnd(cache, graph, className, false);
+        ExecStat.execStat("FrontEnd");
+
+        /* ================================
+                       BACKEND
+           ================================ */
+
+        /*  BackendStuff can now be added here. */
+        bdae := NBackendDAECreate.lower(flatModel, funcTree);
+
+        /* Dummy output for now */
+        libs := {"DUMMY"};
+        file_dir := "DUMMY";
+    then (true, libs, file_dir);
+
+    /* old backend */
+    case (graph, filenameprefix) algorithm
       // calculate stuff that we need to create SimCode data structure
       System.realtimeTick(ClockIndexes.RT_CLOCK_FRONTEND);
       ExecStat.execStatReset();
