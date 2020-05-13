@@ -360,6 +360,7 @@ if true then /* Suppress output */
     "../NFFrontEnd/NFFlatten.mo",
     "../NFFrontEnd/NFFunction.mo",
     "../NFFrontEnd/NFFunctionDerivative.mo",
+    "../NFFrontEnd/NFHashSet.mo",
     "../NFFrontEnd/NFHashTable.mo",
     "../NFFrontEnd/NFHashTable3.mo",
     "../NFFrontEnd/NFHashTableCG.mo",

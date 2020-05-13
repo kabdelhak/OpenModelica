@@ -3110,8 +3110,8 @@ function instAlgorithmSection
   input ExpOrigin.Type origin;
   output Algorithm alg;
 algorithm
-  alg := Algorithm.ALGORITHM(instStatements(algorithmSection.statements, scope, origin),
-                             DAE.emptyElementSource);
+  alg := Algorithm.ALGORITHM(instStatements(algorithmSection.statements, scope, origin), {}, DAE.emptyElementSource);
+  alg.outputs := Algorithm.getOutputs(alg);
 end instAlgorithmSection;
 
 function instStatements
