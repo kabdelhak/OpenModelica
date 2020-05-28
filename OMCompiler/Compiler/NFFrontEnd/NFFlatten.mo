@@ -722,7 +722,7 @@ algorithm
         range := Expression.RANGE(Type.ARRAY(Type.INTEGER(), dimensions), Expression.INTEGER(1), NONE(), Expression.INTEGER(stop));
         body := Statement.mapExpList(alg.statements, function addIterator(prefix = prefix, subscript = Subscript.INDEX(Expression.CREF(Type.INTEGER(), ComponentRef.makeIterator(iter, Type.INTEGER())))));
       then
-        Algorithm.ALGORITHM({Statement.FOR(iter, SOME(range), body, alg.source)}, alg.outputs, alg.source); // ToDo: update outputs?
+        Algorithm.ALGORITHM({Statement.FOR(iter, SOME(range), body, alg.source)}, alg.inputs, alg.outputs, alg.source); // ToDo: update inputs, outputs?
   end match;
 end vectorizeAlgorithm;
 

@@ -3109,9 +3109,14 @@ function instAlgorithmSection
   input InstNode scope;
   input ExpOrigin.Type origin;
   output Algorithm alg;
+protected
+  list<ComponentRef> inputs_lst;
+  list<ComponentRef> outputs_lst;
+  list<Statement> stmts;
 algorithm
-  alg := Algorithm.ALGORITHM(instStatements(algorithmSection.statements, scope, origin), {}, DAE.emptyElementSource);
-  alg.outputs := Algorithm.getOutputs(alg);
+  stmts := instStatements(algorithmSection.statements, scope, origin);
+  (inputs_lst, outputs_lst) := Algorithm.getInputsOutputs(stmts);
+  alg := Algorithm.ALGORITHM(stmts, inputs_lst, outputs_lst, DAE.emptyElementSource);
 end instAlgorithmSection;
 
 function instStatements
