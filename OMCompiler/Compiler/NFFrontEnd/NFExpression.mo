@@ -4779,5 +4779,24 @@ public
     end match;
   end addBindingExpParent;
 
+  function containsCref
+    input Expression exp;
+    input ComponentRef cref;
+    output Boolean b;
+  algorithm
+    b := Expression.fold(exp, function isCrefEqual(cref = cref), false);
+  end containsCref;
+
+  function isCrefEqual
+    input Expression exp;
+    input output Boolean b;
+    input ComponentRef cref;
+  algorithm
+    b := match exp
+      case CREF() then ComponentRef.isEqual(exp.cref ,cref);
+      else b;
+    end match;
+  end isCrefEqual;
+
 annotation(__OpenModelica_Interface="frontend");
 end NFExpression;
