@@ -762,9 +762,12 @@ protected function setDebugFlag
   input String flag_str;
   input Boolean value;
   output Boolean oldValue;
+protected
+  Option<Boolean> opt_val;
 algorithm
-  if UnorderedMap.contains(flag_str, inFlags) then
-    oldValue := UnorderedMap.getSafe(flag_str, inFlags, sourceInfo());
+  opt_val := UnorderedMap.get(flag_str, inFlags);
+  if Util.isSome(opt_val) then
+    SOME(oldValue) := opt_val;
     UnorderedMap.add(flag_str, value, inFlags);
   else
     Error.addMessage(Error.UNKNOWN_DEBUG_FLAG, {flag_str});
