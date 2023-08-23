@@ -1,0 +1,1 @@
+echo(false);inFile := "../FrontEnd/AbsynUtil.mo";outFile := "build/AbsynUtil.stamp.mo.tmp"; className := $TypeName(AbsynUtil); runScript("GenerateInterface.mos"); print(getErrorString()); print("Something went horribly wrong for build/AbsynUtil.stamp.mo\n"); exit(1);

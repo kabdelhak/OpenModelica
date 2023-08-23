@@ -1,0 +1,1 @@
+echo(false);inFile := "../Util/Flags.mo";outFile := "build/Flags.stamp.mo.tmp"; className := $TypeName(Flags); runScript("GenerateInterface.mos"); print(getErrorString()); print("Something went horribly wrong for build/Flags.stamp.mo\n"); exit(1);

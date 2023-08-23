@@ -1,0 +1,1 @@
+$(GEN_DIR)FlagsUtil.o: $(GEN_DIR)FlagsUtil.c $(GEN_DIR)FlagsUtil.h $(GEN_DIR)Corba.h $(GEN_DIR)Error.h $(GEN_DIR)ErrorExt.h $(GEN_DIR)Flags.h $(GEN_DIR)FlagsUtil.h $(GEN_DIR)Gettext.h $(GEN_DIR)List.h $(GEN_DIR)Print.h $(GEN_DIR)Settings.h $(GEN_DIR)StringUtil.h $(GEN_DIR)System.h $(GEN_DIR)UnorderedMap.h $(GEN_DIR)Util.h

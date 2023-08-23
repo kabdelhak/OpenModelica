@@ -1,0 +1,1 @@
+echo(false);files:={"../Util/GCExt.mo"};mainClass:=$TypeName(GCExt);runScript("CompileFile.mos");print("Something went horribly wrong for build/GCExt.stamp\n");exit(1);

@@ -1,0 +1,1 @@
+$(GEN_DIR)GCExt.o: $(GEN_DIR)GCExt.c $(GEN_DIR)GCExt.h $(GEN_DIR)GCExt.h

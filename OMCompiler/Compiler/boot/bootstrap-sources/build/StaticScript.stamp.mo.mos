@@ -1,0 +1,1 @@
+echo(false);inFile := "../Script/StaticScript.mo";outFile := "build/StaticScript.stamp.mo.tmp"; className := $TypeName(StaticScript); runScript("GenerateInterface.mos"); print(getErrorString()); print("Something went horribly wrong for build/StaticScript.stamp.mo\n"); exit(1);

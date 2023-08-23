@@ -1,0 +1,1 @@
+echo(false);inFile := "../Util/GCExt.mo";outFile := "build/GCExt.stamp.mo.tmp"; className := $TypeName(GCExt); runScript("GenerateInterface.mos"); print(getErrorString()); print("Something went horribly wrong for build/GCExt.stamp.mo\n"); exit(1);

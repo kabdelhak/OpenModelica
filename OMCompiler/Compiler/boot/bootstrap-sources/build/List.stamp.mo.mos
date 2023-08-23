@@ -1,0 +1,1 @@
+echo(false);inFile := "../Util/List.mo";outFile := "build/List.stamp.mo.tmp"; className := $TypeName(List); runScript("GenerateInterface.mos"); print(getErrorString()); print("Something went horribly wrong for build/List.stamp.mo\n"); exit(1);

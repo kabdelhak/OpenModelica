@@ -1,0 +1,1 @@
+echo(false);files:={"../Util/List.mo","build/Array.interface.mo","build/DoubleEnded.interface.mo","build/Mutable.interface.mo","build/GCExt.interface.mo"};mainClass:=$TypeName(List);runScript("CompileFile.mos");print("Something went horribly wrong for build/List.stamp\n");exit(1);

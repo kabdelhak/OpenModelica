@@ -1,0 +1,1 @@
+echo(false);files:={"../Util/Flags.mo","build/Gettext.interface.mo","build/Global.interface.mo","build/UnorderedMap.interface.mo","build/Vector.interface.mo","build/Mutable.interface.mo"};mainClass:=$TypeName(Flags);runScript("CompileFile.mos");print("Something went horribly wrong for build/Flags.stamp\n");exit(1);
