@@ -6171,7 +6171,7 @@ template equationArrayCallAssign(SimEqSystem eq, Context context,
 case eqn as SES_ARRAY_CALL_ASSIGN(lhs=lhs as CREF(__)) then
   let &preExp = buffer ""
   let expPart = daeExp(exp, context, &preExp, &varDecls, &auxFunction)
-  let lhsstr = daeExpCrefLhs(lhs, context, &preExp, &varDecls, &auxFunction, false)
+  let lhsstr = daeExpCrefLhs(lhs, expPart, context, &preExp, &varDecls, &auxFunction, false)
   match expTypeFromExpShort(eqn.exp)
   case "boolean" then
     <<

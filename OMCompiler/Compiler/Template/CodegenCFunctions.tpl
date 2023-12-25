@@ -2894,8 +2894,8 @@ template algStmtAssign(DAE.Statement stmt, Context context, Text &varDecls, Text
   case STMT_ASSIGN(exp1=CREF(ty = T_FUNCTION_REFERENCE_VAR(__)))
   case STMT_ASSIGN(exp1=CREF(ty = T_FUNCTION_REFERENCE_FUNC(__))) then
     let &preExp = buffer ""
-    let varPart = daeExpCrefLhs(exp1, context, &preExp, &varDecls, &auxFunction, false)
     let expPart = daeExp(exp, context, &preExp, &varDecls, &auxFunction)
+    let varPart = daeExpCrefLhs(exp1, expPart, context, &preExp, &varDecls, &auxFunction, false)
     <<
     <%preExp%>
     <%varPart%> = (modelica_fnptr) <%expPart%>;
@@ -2916,8 +2916,8 @@ template algStmtAssign(DAE.Statement stmt, Context context, Text &varDecls, Text
         // Modelica Array
       else
         let &preExp = buffer ""
-        let varPart = daeExpAsub(exp1, context, &preExp, &varDecls, &auxFunction)
         let expPart = daeExp(val, context, &preExp, &varDecls, &auxFunction)
+        let varPart = daeExpAsub(exp1, context, &preExp, &varDecls, &auxFunction)
         <<
         <%preExp%>
         <%varPart%> = <%expPart%>;
@@ -2936,8 +2936,8 @@ template algStmtAssign(DAE.Statement stmt, Context context, Text &varDecls, Text
   // TODO remove me
   case STMT_ASSIGN(exp1=CREF(__)) then
     let &preExp = buffer ""
-    let varPart = daeExpCrefLhs(exp1, context, &preExp, &varDecls, &auxFunction, false)
     let expPart = daeExp(exp, context, &preExp, &varDecls, &auxFunction)
+    let varPart = daeExpCrefLhs(exp1, expPart, context, &preExp, &varDecls, &auxFunction, false)
     <<
     <%preExp%>
     <%varPart%> = <%expPart%>;
@@ -3087,7 +3087,7 @@ match lhsexp
   case CREF(componentRef = cr, ty=DAE.T_COMPLEX(complexClassType=RECORD(__))) then
     algStmtAssignRecordWithRhsExpStr(lhsexp, rhsExpStr, context, &preExp, &varDecls, &auxFunction)
   case CREF(__) then
-    let lhsStr = daeExpCrefLhs(lhsexp, context, &preExp, &varDecls, &auxFunction, false)
+    let lhsStr = daeExpCrefLhs(lhsexp, rhsExpStr, context, &preExp, &varDecls, &auxFunction, false)
     '<%lhsStr%> = <%rhsExpStr%>;'
 
   /*This CALL on left hand side case shouldn't have been created by the compiler. It only comes because of alias eliminations. On top of that
@@ -3099,7 +3099,7 @@ match lhsexp
     <%preExp%>
     <%tmp%> = <%rhsExpStr%>;
     <% varLst |> var as TYPES_VAR(__) hasindex i1 fromindex 1 =>
-      let re = daeExpCrefLhs(listGet(expLst,i1), context, &preExp, &varDecls, &auxFunction, false)
+      let re = daeExpCrefLhs(listGet(expLst,i1), rhsExpStr, context, &preExp, &varDecls, &auxFunction, false)
       '<%re%> = <%tmp%>._<%var.name%>;'
     ; separator="\n"
     %>
@@ -3111,7 +3111,7 @@ match lhsexp
     <%preExp%>
     <%tmp%> = <%rhsExpStr%>;
     <% varLst |> var as TYPES_VAR(__) hasindex i1 fromindex 1 =>
-      let re = daeExpCrefLhs(listGet(expLst,i1), context, &preExp, &varDecls, &auxFunction, false)
+      let re = daeExpCrefLhs(listGet(expLst,i1), rhsExpStr, context, &preExp, &varDecls, &auxFunction, false)
       '<%re%> = <%tmp%>._<%var.name%>;'
     ; separator="\n"
     %>
@@ -3147,7 +3147,7 @@ match lhsexp
   case CREF(componentRef=cr, ty = T_ARRAY(ty=basety, dims=dims)) then
     let type = expTypeArray(ty)
     if crefSubIsScalar(cr) then
-      let lhsStr = daeExpCrefLhs(lhsexp, context, &preExp, &varDecls, &auxFunction, false)
+      let lhsStr = daeExpCrefLhs(lhsexp, rhsExpStr, context, &preExp, &varDecls, &auxFunction, false)
       '<%type%>_copy_data(<%rhsExpStr%>, <%lhsStr%>);'
     else
       indexedAssign(lhsexp, rhsExpStr, context, &preExp, &varDecls, &auxFunction)
@@ -3303,7 +3303,7 @@ template tupleReturnVariableUpdates(Exp inExp, Context context, Text &varDecls, 
       >> /*varCopy end*/
     '&<%rhsStr%>'
   case CREF(__) then
-    let res = daeExpCrefLhs(inExp, context, &preExp, &varDecls, &auxFunction, false)
+    let res = daeExpCrefLhs(inExp, "", context, &preExp, &varDecls, &auxFunction, false)
     if isArrayWithUnknownDimension(ty)
     then
       let &preExp += '<%res%>.dim_size = NULL;<%\n%>'
@@ -5527,7 +5527,7 @@ template arrayScalarRhs(Type ty, list<Exp> subs, String arrName, Context context
           >>
 end arrayScalarRhs;
 
-template daeExpCrefLhs(Exp exp, Context context, Text &preExp,
+template daeExpCrefLhs(Exp exp, String rhsExpStr, Context context, Text &preExp,
                        Text &varDecls, Text &auxFunction, Boolean isPre)
  "Generates code for a component reference on the left hand side of an expression."
 ::=
@@ -5539,10 +5539,10 @@ template daeExpCrefLhs(Exp exp, Context context, Text &preExp,
   else
     match context
     case FUNCTION_CONTEXT(__) then daeExpCrefLhsFunContext(exp, context, &preExp, &varDecls, &auxFunction)
-    else daeExpCrefLhsSimContext(exp, context, &preExp, &varDecls, &auxFunction, isPre)
+    else daeExpCrefLhsSimContext(exp, rhsExpStr, context, &preExp, &varDecls, &auxFunction, isPre)
 end daeExpCrefLhs;
 
-template daeExpCrefLhsSimContext(Exp ecr, Context context, Text &preExp,
+template daeExpCrefLhsSimContext(Exp ecr, String rhsExpStr, Context context, Text &preExp,
                         Text &varDecls, Text &auxFunction, Boolean isPre)
  "Generates code for a component reference in simulation context."
 ::=
@@ -5572,16 +5572,8 @@ template daeExpCrefLhsSimContext(Exp ecr, Context context, Text &preExp,
       let &preExp += t
     wrapperArray
     else
-      let &sub = buffer ""
-      let dimsLenStr = listLength(crefDims(cr))
-      let dimsValuesStr = (crefDims(cr) |> dim => '(_index_t)<%dimension(dim, context, &preExp, &varDecls, &auxFunction)%>' ;separator=", ")
-      let arrName = contextCref(crefStripSubs(cr), context, &preExp, &varDecls, &auxFunction, &sub)
-      let &preExp += '<%type%>_array_create(&<%wrapperArray%>, (modelica_<%type%>*)&<%arrName%>, <%dimsLenStr%>, <%dimsValuesStr%>);<%\n%>'
-      let slicedArray = tempDecl(arrayType, &varDecls)
-      let spec1 = daeExpCrefIndexSpec(crefSubs(cr), context, &preExp, &varDecls, &auxFunction)
-      let &preExp += 'index_alloc_<%type%>_array(&<%wrapperArray%>, &<%spec1%>, &<%slicedArray%>);<%\n%>'
-    slicedArray
-
+      indexedAssign(ecr, rhsExpStr, context, &preExp, &varDecls, &auxFunction)
+ 
   case ecr as CREF(componentRef=cr, ty=ty) then
     if crefIsScalarWithAllConstSubs(cr) then
         contextCrefIsPre(cr,context, &auxFunction, isPre)
@@ -7194,7 +7186,7 @@ template daeExpAsub(Exp inExp, Context context, Text &preExp,
     error(sourceInfo(),'ASUB_EASY_CASE type:<%unparseType(t)%> range:<%ExpressionDumpTpl.dumpExp(exp,"\"")%> index:<%ExpressionDumpTpl.dumpExp(idx,"\"")%>')
 
   case ASUB(exp=ecr as CREF(__), sub=subs) then
-    daeExpCrefLhs(buildCrefExpFromAsub(ecr, subs), context, &preExp, &varDecls, &auxFunction, false)
+    daeExpCrefLhs(buildCrefExpFromAsub(ecr, subs), "", context, &preExp, &varDecls, &auxFunction, false)
 
   case ASUB(exp=e, sub=indexes) then
     let exp = daeExp(e, context, &preExp, &varDecls, &auxFunction)
@@ -7227,7 +7219,7 @@ template daeExpCallPre(Exp exp, Context context, Text &preExp, Text &varDecls, T
    pre() functions should actaully be eliminated in backend and $PRE prepened as ident
    in all cases. (now it's done some places but not in others.)*/
   case cr as CREF(__) then
-    daeExpCrefLhs(exp, context, &preExp, &varDecls, &auxFunction, true)
+    daeExpCrefLhs(exp, "", context, &preExp, &varDecls, &auxFunction, true)
   else
     error(sourceInfo(), 'Code generation does not support pre(<%ExpressionDumpTpl.dumpExp(exp,"\"")%>)')
 end daeExpCallPre;
