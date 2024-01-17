@@ -48,6 +48,7 @@ public
   import BackendExtension = NFBackendExtension;
   import NFBackendExtension.{BackendInfo, VariableKind, VariableAttributes};
   import NFBinding.Binding;
+  import Class = NFClass;
   import ComponentRef = NFComponentRef;
   import Dimension = NFDimension;
   import Expression = NFExpression;
@@ -145,16 +146,28 @@ public
     input Binding binding = NFBinding.EMPTY_BINDING;
     output Variable variable;
   protected
-    InstNode node;
+    InstNode node, child_node;
     Type ty;
     Prefixes.Visibility vis;
     SourceInfo info;
+    Option<Integer> complexSize;
+    list<Variable> children = {};
   algorithm
     node := ComponentRef.node(cref);
     ty   := ComponentRef.getSubscriptedType(cref, true);
     vis  := InstNode.visibility(node);
     info := InstNode.info(node);
-    variable := Variable.VARIABLE(cref, ty, binding, vis, attr, {}, {}, NONE(), info, NFBackendExtension.DUMMY_BACKEND_INFO);
+
+    // get the record children if the variable is a record
+    complexSize := Type.complexSize(ty);
+    if Util.isSome(complexSize) then
+      for i in Util.getOption(complexSize):-1:1 loop
+        child_node := Class.nthComponent(i, InstNode.getClass(node));
+        children := fromCref(ComponentRef.fromNode(child_node, InstNode.getType(child_node))) :: children;
+      end for;
+    end if;
+
+    variable := Variable.VARIABLE(cref, ty, binding, vis, attr, {}, children, NONE(), info, NFBackendExtension.DUMMY_BACKEND_INFO);
   end fromCref;
 
   function makeVarPtrCyclic
@@ -1028,14 +1041,22 @@ public
     InstNode node;
     Variable var;
     list<Dimension> dims = Type.arrayDims(ty);
+    function updateBackendInfo
+      input output Variable var;
+      input Boolean makeParam;
+    algorithm
+      // update the variable kind and set hideResult = true
+      var.backendinfo := BackendExtension.BackendInfo.setVarKind(var.backendinfo, VariableKind.fromType(Variable.typeOf(var), makeParam));
+      var.backendinfo := BackendExtension.BackendInfo.setHideResult(var.backendinfo, true);
+    end updateBackendInfo;
   algorithm
     // create inst node with dummy variable pointer and create cref from it
     node  := InstNode.VAR_NODE(name + "_" + intString(uniqueIndex), Pointer.create(DUMMY_VARIABLE));
     cref  := ComponentRef.CREF(node, {}, ty, NFComponentRef.Origin.CREF, ComponentRef.EMPTY());
     var   := fromCref(cref);
-    // update the variable kind and set hideResult = true
-    var.backendinfo := BackendExtension.BackendInfo.setVarKind(var.backendinfo, VariableKind.fromType(ty, makeParam));
-    var.backendinfo := BackendExtension.BackendInfo.setHideResult(var.backendinfo, true);
+
+    var := updateBackendInfo(var, makeParam);
+    var.children := list(updateBackendInfo(child, makeParam) for child in var.children);
 
     // create the new variable pointer and safe it to the component reference
     (var_ptr, cref) := makeVarPtrCyclic(var, cref);
@@ -1936,7 +1957,7 @@ public
     end setVariables;
 
     // used to add specific types. Fill up with Jacobian/Hessian types
-    type VarType = enumeration(STATE, STATE_DER, ALGEBRAIC, DISCRETE, DISC_STATE, PREVIOUS, START, PARAMETER, ITERATOR);
+    type VarType = enumeration(STATE, STATE_DER, ALGEBRAIC, DISCRETE, DISC_STATE, PREVIOUS, START, PARAMETER, ITERATOR, RECORD);
 
     function addTypedList
       input output VarData varData;
@@ -1989,6 +2010,13 @@ public
 
         case (VAR_DATA_SIM(), VarType.ITERATOR) algorithm
           varData.variables := VariablePointers.addList(var_lst, varData.variables);
+          varData.knowns := VariablePointers.addList(var_lst, varData.knowns);
+        then varData;
+
+        // IMPORTANT: does not add the record elements!
+        case (VAR_DATA_SIM(), VarType.RECORD) algorithm
+          varData.variables := VariablePointers.addList(var_lst, varData.variables);
+          varData.records := VariablePointers.addList(var_lst, varData.records);
           varData.knowns := VariablePointers.addList(var_lst, varData.knowns);
         then varData;
 

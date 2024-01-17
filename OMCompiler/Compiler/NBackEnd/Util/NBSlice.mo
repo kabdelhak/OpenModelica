@@ -1077,6 +1077,7 @@ protected
     list<Integer> sizes;
     list<Expression> subs;
   algorithm
+      print("checking cref: " + ComponentRef.toString(cref) + "\n");
       stripped        := ComponentRef.stripSubscriptsAll(cref);
       var_arr_idx     := UnorderedMap.getSafe(stripped, map, sourceInfo());
       (var_start, _)  := mapping.var_AtS[var_arr_idx];
@@ -1096,6 +1097,7 @@ protected
     list<Expression> replaced;
     list<Integer> values;
   algorithm
+    print("checking subscript expressions: " + List.toString(subs, Expression.toString) + "\n");
     replaced := list(Expression.map(sub, function Replacements.applySimpleExp(replacements = replacements)) for sub in subs);
     values := list(Expression.integerValue(SimplifyExp.simplify(rep, true)) for rep in replaced);
     ranges := List.zip(sizes, values);
