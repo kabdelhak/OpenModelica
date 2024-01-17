@@ -213,7 +213,7 @@ protected
   protected
     UnorderedMap<Call_Id, Call_Aux> map = UnorderedMap.new<Call_Aux>(Call_Id.hash, Call_Id.isEqual);
     Pointer<Integer> index = Pointer.create(1);
-    list<Pointer<Variable>> new_vars_disc = {}, new_vars_cont = {}, new_vars_init = {};
+    list<Pointer<Variable>> new_vars_disc = {}, new_vars_cont = {}, new_vars_init = {}, new_vars_recd;
     list<Pointer<Equation>> new_eqns_disc = {}, new_eqns_cont = {}, new_eqns_init = {};
     list<tuple<Call_Id, Call_Aux>> debug_lst_sim, debug_lst_ini;
     list<tuple<String, String>> debug_str;
@@ -236,6 +236,11 @@ protected
           (id, aux) := tpl;
           new_vars  := Call_Aux.getVars(aux);
           disc := true;
+
+          // extract the records and expand everything to their respective children
+          new_vars_recd := List.filterOnTrue(new_vars, BVariable.isRecord);
+          //new_vars := List.flatten(list(Variable.expandChildren(v) for v in new_vars));
+
           for new_var in new_vars loop
             if BVariable.isContinuous(new_var) then
               disc := false;
@@ -272,6 +277,11 @@ protected
           if not aux.parsed then
             // unfix parameters in initial system because we also add an equation
             new_vars := Call_Aux.getVars(aux);
+
+            // extract the records and expand everything to their respective children
+            new_vars_recd := listAppend(List.filterOnTrue(new_vars, BVariable.isRecord), new_vars_recd);
+            //new_vars := List.flatten(list(Variable.expandChildren(v) for v in new_vars));
+
             for new_var in new_vars loop
               new_var := BVariable.setFixed(new_var, false);
               new_vars_init := new_var :: new_vars_init;
