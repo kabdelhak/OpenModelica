@@ -682,6 +682,13 @@ public
     end match;
   end mathSymbol;
 
+  function classificationString
+    input Classification cla;
+    output String str;
+  protected
+  algorithm
+  end classificationString;
+
   function classify
     input Operator op;
     output Classification cl;
