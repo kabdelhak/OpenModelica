@@ -162,6 +162,39 @@ public
       end match;
     end getFrames;
 
+    function subscriptsFromFrames
+      "takes subscripts and replaces them to be instead represented by the frame iterators
+      Note: obviously only works if the sizes/types are the same."
+      input list<Frame> frames;
+      input list<Subscript> subs;
+      output list<Subscript> new_subs = {};
+    protected
+      Frame frame;
+      Subscript sub;
+    algorithm
+      for tpl in List.zip(frames, subs) loop
+        (frame, sub) := tpl;
+        sub := subscriptFromFrame(frame, sub);
+        new_subs := sub :: new_subs;
+      end for;
+      new_subs := listReverse(new_subs);
+    end subscriptsFromFrames;
+
+    function subscriptFromFrame
+      "Example: subscript [5:1000] iterator frame: {$i in 1:1:996} results in subscript [$i+4]"
+      input Frame frame;
+      input output Subscript sub;
+    algorithm
+      sub := match sub
+        case Subscript.SLICE(slice = Expression.RANGE()) algorithm
+          // adapt normalizedSubscript for this purpose
+        then sub;
+        case Subscript.WHOLE() algorithm
+        then sub;
+        else sub;
+      end match;
+    end subscriptFromFrame;
+
     function merge
       "merges multiple iterators to one NESTED() iterator"
       input list<Iterator> iterators;

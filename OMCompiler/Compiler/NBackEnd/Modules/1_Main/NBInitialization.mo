@@ -300,6 +300,7 @@ public
     input Pointer<list<Pointer<Equation>>> ptr_start_eqs;
     input Pointer<Integer> idx;
   protected
+    Type ty, exp_ty;
     Option<Expression> start_exp_opt;
     Expression start_exp;
     Pointer<Variable> var_ptr, start_var;
@@ -308,7 +309,7 @@ public
     list<InstNode> iterators;
     list<ComponentRef> iter_crefs;
     list<Expression> ranges;
-    list<Subscript> subscripts;
+    list<Subscript> subscripts, new_subs;
     list<tuple<ComponentRef, Expression>> frames;
     Pointer<Equation> start_eq;
     EquationKind kind;
@@ -320,7 +321,8 @@ public
     var_ptr := Slice.getT(state);
     // make unique iterators for the new for-loop
     name    := BVariable.getVarName(var_ptr);
-    dims    := Type.arrayDims(ComponentRef.getSubscriptedType(name));
+    ty      := ComponentRef.getSubscriptedType(name);
+    dims    := Type.arrayDims(ty);
     (iterators, ranges, subscripts) := Flatten.makeIterators(name, dims);
     iter_crefs := list(ComponentRef.makeIterator(iter, Type.INTEGER()) for iter in iterators);
     iter_crefs := list(BackendDAE.lowerIteratorCref(iter) for iter in iter_crefs);
@@ -333,8 +335,9 @@ public
       // use the start attribute itself if it is not constant
       // discard start_var/start_name
       SOME(start_exp) := start_exp_opt;
-      // if it is some kind of array repeating structure, extract the repeated element e.g. fill()
+
       start_exp := match start_exp
+        // if it is an array constructor, use it
         case Expression.CALL(call = array_constructor as Call.TYPED_ARRAY_CONSTRUCTOR()) algorithm
           replacements := UnorderedMap.new<Expression>(ComponentRef.hash, ComponentRef.isEqual);
           for tpl in List.zip(array_constructor.iters, frames) loop
@@ -342,6 +345,25 @@ public
             UnorderedMap.add(ComponentRef.fromNode(old_iter, InstNode.getType(old_iter)), Expression.fromCref(new_iter), replacements);
           end for;
         then Expression.map(array_constructor.exp, function Replacements.applySimpleExp(replacements = replacements));
+
+        // if it is a cref, it has to be same size. try to create the iterated expression from it
+        // do some kind of alias for the bindings if there are more complex expressions here.
+        case Expression.CREF() guard(not listEmpty(frames)) algorithm
+          exp_ty := ComponentRef.getSubscriptedType(start_exp.cref);
+          if Type.isEqual(ty, exp_ty) then
+            // not tested with multiple dimensions, might need to invert the subscript list or use another function to get them
+            new_subs := Iterator.subscriptsFromFrames(frames, ComponentRef.subscriptsAllWithWholeFlat(start_exp.cref));
+            start_exp.cref := ComponentRef.mergeSubscripts(new_subs, ComponentRef.stripSubscriptsAll(start_exp.cref));
+            print("iterator: " + Iterator.toString(Iterator.fromFrames(frames)) + "\n");
+            print("subscripts: " + List.toString(ComponentRef.subscriptsAllWithWholeFlat(start_exp.cref), Subscript.toString) + "\n");
+          else
+            Error.addMessage(Error.INTERNAL_ERROR, {getInstanceName() + " failed because the binding equation for "
+              + ComponentRef.toString(name) + " and the binding " + Expression.toString(start_exp) + " could not be created.
+              The types are not equal. Var type: " + Type.toString(ty) + " binding type: " + Type.toString(exp_ty) + "."});
+            fail();
+          end if;
+        then start_exp;
+
         else start_exp;
       end match;
     else
