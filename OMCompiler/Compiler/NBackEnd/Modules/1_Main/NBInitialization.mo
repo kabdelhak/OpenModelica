@@ -464,6 +464,7 @@ public
 
         // create init_0 if homotopy call exists.
         if Pointer.access(hasHom) then
+          print("do the stuff\n");
           bdae.init_0 := SOME(list(System.clone(sys, false) for sys in bdae.init));
           bdae.init_0 := SOME(list(System.mapExp(sys, function cleanupHomotopy(init = true, hasHom = hasHom)) for sys in Util.getOption(bdae.init_0)));
         end if;
@@ -526,6 +527,7 @@ public
         String name;
         Call call;
       case Expression.CALL(call = call as Call.TYPED_CALL()) algorithm
+        print("found: " + Expression.toString(exp) + "\n");
         name := AbsynUtil.pathString(Function.nameConsiderBuiltin(call.fn));
         e := match name
           case "homotopy" algorithm
@@ -533,7 +535,9 @@ public
           then listGet(Call.arguments(exp.call), if init then 2 else 1);
           else exp;
         end match;
+        print("result: " + Expression.toString(e) + "\n");
       then e;
+
       else exp;
     end match;
   end cleanupHomotopy;

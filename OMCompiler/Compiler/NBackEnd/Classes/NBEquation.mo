@@ -3102,6 +3102,7 @@ public
           eq := Pointer.access(eq_ptr);
           new_eq := Equation.map(eq, funcExp, funcCrefOpt);
           if not referenceEq(eq, new_eq) then
+            print("updating " + Equation.toString(new_eq) + "\n");
             // Do not update the expandable array entry, but the pointer itself
             Pointer.update(eq_ptr, new_eq);
           end if;
