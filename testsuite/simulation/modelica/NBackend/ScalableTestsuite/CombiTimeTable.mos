@@ -5,7 +5,7 @@
 
 loadModel(ScalableTestSuite); getErrorString();
 
-simulate(ScalableTestSuite.Elementary.Tables.Models.CombiTimeTable); getErrorString();
+simulate(ScalableTestSuite.Elementary.Tables.Models.CombiTimeTable, simflags="-lv LOG_EVENTS"); getErrorString();
 
 res := OpenModelica.Scripting.compareSimulationResults("ScalableTestSuite.Elementary.Tables.Models.CombiTimeTable_res.mat",
   "ReferenceFiles/ScalableTestSuite.Elementary.Tables.Models.CombiTimeTable_res.mat",
@@ -15,13 +15,32 @@ res := OpenModelica.Scripting.compareSimulationResults("ScalableTestSuite.Elemen
 // Result:
 // true
 // ""
+// Error reading stream: unexpected end of file.
+// Expected to read 1. Read only 0
 // record SimulationResult
-//     resultFile = "ScalableTestSuite.Elementary.Tables.Models.CombiTimeTable_res.mat",
-//     simulationOptions = "startTime = 0.0, stopTime = 1.0, numberOfIntervals = 1, tolerance = 1e-6, method = 'dassl', fileNamePrefix = 'ScalableTestSuite.Elementary.Tables.Models.CombiTimeTable', options = '', outputFormat = 'mat', variableFilter = '.*', cflags = '', simflags = ''",
-//     messages = "LOG_SUCCESS       | info    | The initialization finished successfully without homotopy method.
-// LOG_SUCCESS       | info    | The simulation finished successfully.
+//     resultFile = "",
+//     simulationOptions = "startTime = 0.0, stopTime = 1.0, numberOfIntervals = 500, tolerance = 1e-6, method = 'dassl', fileNamePrefix = 'ScalableTestSuite.Elementary.Tables.Models.CombiTimeTable', options = '', outputFormat = 'mat', variableFilter = '.*', cflags = '', simflags = '-lv LOG_EVENTS'",
+//     messages = "Simulation execution failed for model: ScalableTestSuite.Elementary.Tables.Models.CombiTimeTable
+//
+// Limited backtrace at point of segmentation fault
+// /home/kab/workspace/2_OM_Build/build_cmake/install_cmake/bin/../lib/x86_64-linux-gnu/omc/libOpenModelicaRuntimeC.so(+0x5a3b0)[0x7f92d05fb3b0]
+// /lib/x86_64-linux-gnu/libpthread.so.0(+0x14420)[0x7f92d0426420]
+// /home/kab/workspace/2_OM_Build/testsuite/simulation/modelica/NBackend/ScalableTestsuite/CombiTimeTable.mos_temp6568/ScalableTestSuite.Elementary.Tables.Models.CombiTimeTable(ModelicaStandardTables_CombiTimeTable_maximumTime+0x28)[0x55f5e2be269e]
+// /home/kab/workspace/2_OM_Build/testsuite/simulation/modelica/NBackend/ScalableTestsuite/CombiTimeTable.mos_temp6568/ScalableTestSuite.Elementary.Tables.Models.CombiTimeTable(omc_Modelica_Blocks_Tables_Internal_getTimeTableTmax+0x2d)[0x55f5e2bdc70d]
+// /home/kab/workspace/2_OM_Build/testsuite/simulation/modelica/NBackend/ScalableTestsuite/CombiTimeTable.mos_temp6568/ScalableTestSuite.Elementary.Tables.Models.CombiTimeTable(ScalableTestSuite_Elementary_Tables_Models_CombiTimeTable_eqFunction_13+0x4c)[0x55f5e2bddb75]
+// /home/kab/workspace/2_OM_Build/testsuite/simulation/modelica/NBackend/ScalableTestsuite/CombiTimeTable.mos_temp6568/ScalableTestSuite.Elementary.Tables.Models.CombiTimeTable(ScalableTestSuite_Elementary_Tables_Models_CombiTimeTable_functionInitialEquations_0+0x60)[0x55f5e2bde018]
+// /home/kab/workspace/2_OM_Build/testsuite/simulation/modelica/NBackend/ScalableTestsuite/CombiTimeTable.mos_temp6568/ScalableTestSuite.Elementary.Tables.Models.CombiTimeTable(ScalableTestSuite_Elementary_Tables_Models_CombiTimeTable_functionInitialEquations+0x36)[0x55f5e2bde135]
+// /home/kab/workspace/2_OM_Build/build_cmake/install_cmake/bin/../lib/x86_64-linux-gnu/omc/libSimulationRuntimeC.so(+0x225875)[0x7f92d0853875]
+// /home/kab/workspace/2_OM_Build/build_cmake/install_cmake/bin/../lib/x86_64-linux-gnu/omc/libSimulationRuntimeC.so(initialization+0x469)[0x7f92d0855569]
+// /home/kab/workspace/2_OM_Build/build_cmake/install_cmake/bin/../lib/x86_64-linux-gnu/omc/libSimulationRuntimeC.so(initializeModel+0x1c3)[0x7f92d088e633]
+// /home/kab/workspace/2_OM_Build/build_cmake/install_cmake/bin/../lib/x86_64-linux-gnu/omc/libSimulationRuntimeC.so(solver_main+0x346)[0x7f92d088f739]
+// /home/kab/workspace/2_OM_Build/build_cmake/install_cmake/bin/../lib/x86_64-linux-gnu/omc/libSimulationRuntimeC.so(+0x1f2c66)[0x7f92d0820c66]
+// /home/kab/workspace/2_OM_Build/build_cmake/install_cmake/bin/../lib/x86_64-linux-gnu/omc/libSimulationRuntimeC.so(startNonInteractiveSimulation+0xe41)[0x7f92d081f982]
+// /home/kab/workspace/2_OM_Build/build_cmake/install_cmake/bin/../lib/x86_64-linux-gnu/omc/libSimulationRuntimeC.so(_main_SimulationRuntime+0xd1)[0x7f92d0822e9a]
+// /home/kab/workspace/2_OM_Build/testsuite/simulation/modelica/NBackend/ScalableTestsuite/CombiTimeTable.mos_temp6568/ScalableTestSuite.Elementary.Tables.Models.CombiTimeTable(main+0x2b4)[0x55f5e2bdc416]
+// Segmentation fault (core dumped)
 // "
 // end SimulationResult;
 // ""
-// {"Files Equal!"}
+// "Error in compareSimulationResults"
 // endResult

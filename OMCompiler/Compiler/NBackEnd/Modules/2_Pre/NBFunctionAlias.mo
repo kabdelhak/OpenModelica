@@ -327,10 +327,13 @@ protected
     (iter, stop) := match eq
       local
         Equation body;
-      case Equation.FOR_EQUATION(body = {body}) then (eq.iter, Equation.isWhenEquation(Pointer.create(body))
-                                                            or Equation.isIfEquation(Pointer.create(body)));
-      case Equation.WHEN_EQUATION()             then (Iterator.EMPTY(), true);
-      case Equation.IF_EQUATION()               then (Iterator.EMPTY(), true);
+
+      case Equation.FOR_EQUATION() then (eq.iter, false);
+
+      case Equation.FOR_EQUATION(body = {body}) then (eq.iter, false /*Equation.isWhenEquation(Pointer.create(body))*/
+                                                            or false /*Equation.isIfEquation(Pointer.create(body))*/);
+      //case Equation.WHEN_EQUATION()             then (Iterator.EMPTY(), true);
+      //case Equation.IF_EQUATION()               then (Iterator.EMPTY(), true);
                                                 else (Iterator.EMPTY(), false);
     end match;
     if not stop then
