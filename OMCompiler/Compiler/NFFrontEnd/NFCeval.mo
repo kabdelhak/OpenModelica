@@ -1775,6 +1775,8 @@ algorithm
       then stringCompare(exp1.filename, exp2.filename) == 0;
     case (Expression.ENUM_LITERAL(), Expression.ENUM_LITERAL())
       then exp1.index == exp2.index;
+    case (Expression.ARRAY(), Expression.ARRAY()) guard(arrayLength(exp1.elements) == arrayLength(exp2.elements))
+      then Array.isEqualOnTrue(exp1.elements, exp2.elements, Expression.isEqual);
 
     else
       algorithm
