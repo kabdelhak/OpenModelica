@@ -1798,7 +1798,7 @@ uniontype Function
       special := false;
     else
       path := Function.nameConsiderBuiltin(fn);
-
+      print("fn: " + Function.signatureString(fn) + " -- " + AbsynUtil.pathFirstIdent(path) + "\n");
       if not AbsynUtil.pathIsIdent(path) then
         special := false;
       else

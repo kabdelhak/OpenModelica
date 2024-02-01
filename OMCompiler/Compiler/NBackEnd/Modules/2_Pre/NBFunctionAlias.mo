@@ -421,6 +421,25 @@ protected
     b := not Inline.functionInlineable(fn)
      and not Function.isSpecialBuiltin(fn)
      and not replaceException(fn);
+    try
+      b := not Inline.functionInlineable(fn);
+      print(boolString(b) + ": functionInlineable\n");
+    else
+      print("failed: functionInlineable\n");
+    end try;
+    try
+      b := b and not Function.isSpecialBuiltin(fn);
+      print(boolString(b) + ": isSpecialBuiltin\n");
+    else
+      print("failed: isSpecialBuiltin\n");
+    end try;
+    try
+      b := b and not replaceException(fn);
+      print(boolString(b) + ": replaceException\n");
+    else
+      print("failed: replaceException\n");
+    end try;
+    print(boolString(b) + " .. " + Call.toString(call) + "\n");
   end checkCallReplacement;
 
   function replaceException
