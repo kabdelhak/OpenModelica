@@ -5,7 +5,7 @@
 
 loadModel(ScalableTestSuite); getErrorString();
 
-simulate(ScalableTestSuite.Electrical.DistributionSystemDC.ScaledExperiments.DistributionSystemModelicaIndividual_N_10_M_10); getErrorString();
+simulate(ScalableTestSuite.Electrical.DistributionSystemAC.ScaledExperiments.DistributionSystemLinear_N_10_M_10); getErrorString();
 
 res := OpenModelica.Scripting.compareSimulationResults("ScalableTestSuite.Electrical.DistributionSystemDC.ScaledExperiments.DistributionSystemModelicaIndividual_N_10_M_10_res.mat",
   "ReferenceFiles/ScalableTestSuite.Electrical.DistributionSystemDC.ScaledExperiments.DistributionSystemModelicaIndividual_N_10_M_10_res.mat",
