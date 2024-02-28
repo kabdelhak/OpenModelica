@@ -901,8 +901,8 @@ public
       CausalizeModes modes;
     algorithm
       adj := createFull(vars, eqns, st, funcTree);
-      //print(solvabilityString(adj, "Full") + "\n");
-      //print(dependencyString(adj, "Full") + "\n");
+      print(solvabilityString(adj, "Full") + "\n");
+      print(dependencyString(adj, "Full") + "\n");
       //print(toString(adj, "Full") + "\n");
       if ExpandableArray.getNumberOfElements(vars.varArr) > 0 or ExpandableArray.getNumberOfElements(eqns.eqArr) > 0 then
         if Util.isSome(funcTree) then
