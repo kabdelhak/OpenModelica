@@ -184,23 +184,16 @@ public
 
   function simple
     input VariablePointers vars;
-    input EquationPointers eqns;
-    input Adjacency.MatrixStrictness st = NBAdjacency.MatrixStrictness.SORTING;
-    output Matching matching;
+    input EquationPointers eqs;
     output list<StrongComponent> comps;
   protected
-    Adjacency.Matrix full, adj;
+    Adjacency.Matrix adj;
+    Matching matching;
   algorithm
-    // create full matrix
-    full := Adjacency.Matrix.createFull(vars, eqns);
-
-    // create solvable adjacency matrix for matching
-    adj := Adjacency.Matrix.fromFull(full, vars.map, eqns.map, eqns, st);
+    // create scalar adjacency matrix for now
+    adj := Adjacency.Matrix.create(vars, eqs);
     matching := Matching.regular(NBMatching.EMPTY_MATCHING, adj);
-
-    // create all occurence adjacency matrix for sorting, upgrading the matching matrix
-    adj := Adjacency.Matrix.upgrade(adj, full, vars.map, eqns.map, eqns, NBAdjacency.MatrixStrictness.SORTING);
-    comps := Sorting.tarjan(adj, matching, vars, eqns);
+    comps := Sorting.tarjan(adj, matching, vars, eqs);
   end simple;
 
   function getModule
@@ -268,17 +261,17 @@ protected
         vn := UnorderedMap.new<Integer>(ComponentRef.hash, ComponentRef.isEqual);
         en := UnorderedMap.subSet(system.equations.map, list(Equation.getEqnName(eqn) for eqn in simulation));
 
-        adj_matching := Adjacency.Matrix.expand(adj_matching, adj, vo, vn, eo, en, system.unknowns, system.equations);
+        adj_matching := Adjacency.Matrix.expand2(adj_matching, adj, vo, vn, eo, en, system.unknowns, system.equations);
         matching := Matching.regular(matching, adj_matching, true, true);
 
         // #################################################
         // Phase III: match all equations <-> all vars
         // #################################################
-        vo := UnorderedMap.merge(vo, vn, sourceInfo());
-        eo := UnorderedMap.merge(eo, en, sourceInfo());
+        vo := vn;
+        eo := en;
         vn := UnorderedMap.subSet(system.unknowns.map, list(BVariable.getVarName(var) for var in fixable));
         en := UnorderedMap.new<Integer>(ComponentRef.hash, ComponentRef.isEqual);
-        adj_matching := Adjacency.Matrix.expand(adj_matching, adj, vo, vn, eo, en, system.unknowns, system.equations);
+        adj_matching := Adjacency.Matrix.expand2(adj_matching, adj, vo, vn, eo, en, system.unknowns, system.equations);
         (matching, adj_matching, variables, equations, funcTree, varData, eqData) := Matching.singular(matching, adj_matching, system.unknowns, system.equations, funcTree, varData, eqData, system.systemType, false, true, false);
 
         // create all occurence adjacency matrix for sorting, upgrading the matching matrix
