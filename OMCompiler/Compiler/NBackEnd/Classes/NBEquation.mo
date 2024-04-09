@@ -894,6 +894,8 @@ public
       Type ty = Expression.typeOf(lhs);
     algorithm
       // match type and create equation accordingly
+      print("lhs: " + Expression.toString(lhs) + "\n");
+      print("type: " + Type.toString(ty) + "\n");
       e := match ty
         case Type.ARRAY() then ARRAY_EQUATION(
             ty          = ty,

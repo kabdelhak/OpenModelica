@@ -104,7 +104,9 @@ public
             // clone all simulation equations and add them to the initial equations. also remove/replace when equations
             initialEqs := EquationPointers.addList(EquationPointers.toList(initialEqs), EquationPointers.clone(equations, false));
             initialEqs := EquationPointers.map(initialEqs, function removeWhenEquation(iter = Iterator.EMPTY(), cref_map = cref_map));
+            print("init3\n");
             (equations, initialEqs) := createWhenReplacementEquations(cref_map, equations, initialEqs, eqData.uniqueIndex);
+            print("init4\n");
 
             varData.variables := variables;
             varData.initials := initialVars;
@@ -225,13 +227,18 @@ public
     Pointer<list<Pointer<Equation>>> ptr_start_eqs = Pointer.create({});
     list<Pointer<Equation>> start_eqs;
   algorithm
+    print("when repl 1 " + UnorderedMap.toString(cref_map, ComponentRef.toString, Iterator.toString) + "\n");
     for tpl in UnorderedMap.toList(cref_map) loop
       createWhenReplacementEquation(tpl, ptr_start_eqs, idx);
     end for;
+    print("when repl 2\n");
     start_eqs := Pointer.access(ptr_start_eqs);
+    print("when repl 3\n");
 
     equations := EquationPointers.addList(start_eqs, equations);
+    print("when repl 4\n");
     initialEqs := EquationPointers.addList(start_eqs, initialEqs);
+    print("when repl 5\n");
 
     if Flags.isSet(Flags.INITIALIZATION) and not listEmpty(start_eqs) then
       print(List.toString(start_eqs, function Equation.pointerToString(str = ""),
@@ -258,11 +265,22 @@ public
     var_ptr := BVariable.getVarPointer(cref);
     pre_post := BVariable.getPrePost(var_ptr);
     if Util.isSome(pre_post) then
-      subscripts := ComponentRef.subscriptsAllWithWholeFlat(cref);
+      subscripts := ComponentRef.subscriptsAllFlat(cref);
       pre := BVariable.getVarName(Util.getOption(pre_post));
       pre := ComponentRef.mergeSubscripts(subscripts, pre, true, true);
       kind := if BVariable.isContinuous(var_ptr) then EquationKind.CONTINUOUS else EquationKind.DISCRETE;
+    print("when 5\n");
+    print("Cref: " + ComponentRef.toString(cref) + " pre: " + ComponentRef.toString(pre) + "\n");
+    print("###############test\n");
+    print("exp:" + Expression.toString(Expression.fromCref(cref, true)) + "\n");
+    print("preexp: " +Expression.toString(Expression.fromCref(pre, false))+ "\n");
+    print("!!!!!!!!!!!!!!!!!!!!!!test\n");
+    print("var: " + BVariable.pointerToString(var_ptr) + "\n");
+    print("is cont :" + boolString(BVariable.isContinuous(var_ptr)) + "\n");
+    print("kind: " + Equation.equationKindString(kind, NONE(), true) + "\n");
+    print("attr: " + EquationAttributes.toString(EquationAttributes.default(kind, true)) + "\n");
       eq := Equation.makeAssignment(Expression.fromCref(cref, true), Expression.fromCref(pre, true), idx, NBEquation.START_STR, iter, EquationAttributes.default(kind, true));
+    print("when 6\n");
       Pointer.update(ptr_start_eqs, eq :: Pointer.access(ptr_start_eqs));
     else
       Error.addMessage(Error.INTERNAL_ERROR, {getInstanceName() + " could not replace when-replacement for "
