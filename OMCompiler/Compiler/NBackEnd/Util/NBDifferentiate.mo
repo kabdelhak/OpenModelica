@@ -1408,6 +1408,7 @@ public
     list<InstNode> local_outputs;
     Boolean changed = false;
   algorithm
+    print("testing: " + Function.toFlatString(func) + "\n");
     func := match func
       case der_func as Function.FUNCTION(node = InstNode.CLASS_NODE(cls = cls)) algorithm
         wrap_cls := Pointer.access(cls);
