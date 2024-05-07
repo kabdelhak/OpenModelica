@@ -303,6 +303,7 @@ protected
         // refining the adjacency matrix by updating solvability information using differentiation
         (full, funcTree)  := Adjacency.Matrix.refine(full, funcTree, v, e, variables, equations, vars_set);
         comp.linear       := checkLinearity(full, v, e);
+        print("comp:" + StrongComponent.toString(comp) + "\nis linear: " + boolString(comp.linear) + "\n");
       then (comp, full, index);
       else (comp, full, index);
     end match;
@@ -423,6 +424,7 @@ protected
         for eqn_idx in UnorderedMap.valueList(e) loop
           for var in var_lst loop
             if UnorderedSet.contains(var, full.occurences[eqn_idx]) and Solvability.nonlinearOrImplicit(UnorderedMap.getSafe(var, full.solvabilities[eqn_idx], sourceInfo())) then
+              print("variable " + ComponentRef.toString(var) + "detected to be nonlinear\n");
               linear := false; break;
             end if;
           end for;
