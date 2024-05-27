@@ -1067,14 +1067,18 @@ protected
   Expression e1, e2, se1, se2;
   Operator op;
 algorithm
+  print("simplify logic bin\n");
   Expression.LBINARY(e1, op, e2) := binaryExp;
   se1 := simplify(e1);
+  print("cp1\n");
   se2 := simplify(e2);
-
+  print("cp2\n");
+  
   binaryExp := match op.op
     case Op.AND then simplifyLogicBinaryAnd(se1, op, se2);
     case Op.OR then simplifyLogicBinaryOr(se1, op, se2);
   end match;
+  print("done\n");
 end simplifyLogicBinary;
 
 function simplifyLogicBinaryAnd

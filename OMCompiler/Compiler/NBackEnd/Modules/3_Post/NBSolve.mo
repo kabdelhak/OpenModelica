@@ -554,7 +554,9 @@ public
         status := Status.IMPLICIT;
       end if;
     end if;
+    print("try to simplify\n");
     eqn := Equation.simplify(eqn, getInstanceName());
+    print("success\n");
   end solveBody;
 
   function solveIfBody
@@ -596,6 +598,7 @@ public
     output Status status;
     output Boolean invertRelation;
   algorithm
+    print("trying to solve simple " + ComponentRef.toString(cref) + " in " + Equation.toString(eqn) + "\n");
     (eqn, status, invertRelation) := match eqn
 
       // check lhs and rhs for simple structure
@@ -611,6 +614,7 @@ public
 
       else (eqn, Status.UNPROCESSED, false);
     end match;
+    print(statusString(status) + "\n");
   end solveSimple;
 
 protected
@@ -632,7 +636,7 @@ protected
       // 1. already solved
       // cref = exp
       case (Expression.CREF(cref = checkCref), exp)
-        guard(ComponentRef.isEqual(cref, checkCref) and not Expression.containsCref(exp, cref))
+        guard(ComponentRef.isEqual(cref, checkCref) and not Expression.containsCref(exp, cref)) algorithm
       then (eqn, Status.EXPLICIT, false);
 
       // 2. only swap lsh and rhs

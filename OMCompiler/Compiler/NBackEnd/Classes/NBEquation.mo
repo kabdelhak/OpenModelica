@@ -1286,8 +1286,11 @@ public
       end if;
       eq := match eq
         case SCALAR_EQUATION() algorithm
+          print("simpl 1\n");
           eq.lhs := SimplifyExp.simplifyDump(eq.lhs, true, name, indent);
+          print("simpl 2\n");
           eq.rhs := SimplifyExp.simplifyDump(eq.rhs, true, name, indent);
+          print("simpl 3\n");
         then eq;
         case ARRAY_EQUATION() algorithm
           eq.lhs := SimplifyExp.simplifyDump(eq.lhs, true, name, indent);
