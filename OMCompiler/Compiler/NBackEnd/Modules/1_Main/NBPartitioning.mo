@@ -55,7 +55,7 @@ protected
   import StrongComponent = NBStrongComponent;
   import Partition = NBPartition;
   import BVariable = NBVariable;
-  import NBVariable.VariablePointers;
+  import NBVariable.{VariablePointers, VarData};
 
   // Util
   import MetaModelica.Dangerous;
@@ -394,27 +394,29 @@ public
   protected
     Module.partitioningInterface func;
   algorithm
-    func := getModule();
 
     bdae := match (kind, bdae)
       local
-        VariablePointers variables, clocks;
-        EquationPointers equations, clocked;
+        VarData varData;
+        EqData eqData;
+        list<Pointer<Equation>> when_clocks;
 
       case (NBPartition.Kind.ODE, BackendDAE.MAIN(
-        varData = BVariable.VAR_DATA_SIM(unknowns = variables, clocks = clocks),
-        eqData = BEquation.EQ_DATA_SIM(simulation = equations, clocked = clocked)))
+        varData = varData as BVariable.VAR_DATA_SIM(),
+        eqData = eqData as BEquation.EQ_DATA_SIM()))
       algorithm
-        bdae.ode := func(kind, variables, equations, clocks, clocked, bdae.clockedInfo);
-        bdae.ode := list(sys for sys guard(not Partition.Partition.isEmpty(sys)) in bdae.ode);
+        func      := getModule();
+        bdae.ode  := func(kind, varData.unknowns, eqData.simulation, varData.clocks, eqData.clocked, bdae.clockedInfo);
+        bdae.ode  := list(part for part guard(not Partition.Partition.isEmpty(part)) in bdae.ode);
       then bdae;
 
       case (NBPartition.Kind.INI, BackendDAE.MAIN(
-        varData = BVariable.VAR_DATA_SIM(initials = variables, clocks = clocks),
-        eqData = BEquation.EQ_DATA_SIM(initials = equations, clocked = clocked)))
+        varData = varData as BVariable.VAR_DATA_SIM(),
+        eqData = eqData as BEquation.EQ_DATA_SIM()))
       algorithm
-        bdae.init := partitioningNone(kind, variables, equations, clocks, clocked, bdae.clockedInfo);
-        bdae.init := list(sys for sys guard(not Partition.Partition.isEmpty(sys)) in bdae.init);
+        func      := partitioningNone;
+        bdae.init := func(kind, varData.initials, eqData.initials, varData.clocks, eqData.clocked, bdae.clockedInfo);
+        bdae.init := list(part for part guard(not Partition.Partition.isEmpty(part)) in bdae.init);
       then bdae;
 
       else algorithm
@@ -544,6 +546,7 @@ protected
       input EquationPointers equations;
       input Partition.Kind kind;
       input ClockedInfo info;
+      input DoubleEnded.MutableList<Pointer<Equation>> when_clocks;
       input Pointer<Integer> index;
       output Partition.Partition partition;
     protected
@@ -572,7 +575,7 @@ protected
       // replace the clocked functions, inline clocked when equations and set equations to clocked
       partEquations := EquationPointers.mapExp(partEquations, replaceClockedFunctions);
       if Partition.Association.isClocked(association) then
-        partEquations := EquationPointers.map(partEquations, replaceClockedWhen);
+        partEquations := EquationPointers.map(partEquations, function replaceClockedWhen(when_clocks = when_clocks));
         partEquations := EquationPointers.map(partEquations, function Equation.setKind(kind = EquationKind.CLOCKED, clock_idx = SOME(clock_idx)));
         partVariables := VariablePointers.mapPtr(partVariables, function BVariable.setVarKind(varKind = VariableKind.CLOCKED()));
       end if;
@@ -701,6 +704,7 @@ protected
     array<Boolean> marked_vars;
     list<Pointer<Variable>> single_vars;
     list<Pointer<Equation>> clocked_eqns = {};
+    DoubleEnded.MutableList<Pointer<Equation>> when_clocks = DoubleEnded.MutableList.fromList({});
   algorithm
     // parse clock assignments
     for eq_idx in UnorderedMap.valueList(clocked.map) loop
@@ -766,7 +770,7 @@ protected
       end if;
     end for;
 
-    partitions := list(Cluster.toPartition(cl, variables, equations, kind, info, index) for cl in UnorderedMap.valueList(cluster_map));
+    partitions := list(Cluster.toPartition(cl, variables, equations, kind, info, when_clocks, index) for cl in UnorderedMap.valueList(cluster_map));
 
     if Flags.isSet(Flags.DUMP_SYNCHRONOUS) then
       print(StringUtil.headline_1("[dumpSynchronous] Partitioning result:") + "\n" + List.toString(partitions, function Partition.Partition.toString(level = 0), "", "", "\n", "\n"));
@@ -915,6 +919,7 @@ protected
     "replace clocked when equations in clocked partitions with their body statement.
     only works for split up when equations with a single statement and no else when."
     input output Equation eqn;
+    input DoubleEnded.MutableList<Pointer<Equation>> when_clocks;
   algorithm
     eqn := match eqn
       local
@@ -922,7 +927,13 @@ protected
         WhenStatement stmt;
 
       case Equation.WHEN_EQUATION(body = WhenEquationBody.WHEN_EQUATION_BODY(condition = cond, when_stmts = {stmt}, else_when = NONE()))
-        guard(Type.isClock(Expression.typeOf(cond)))
+        guard(Type.isClock(Expression.typeOf(cond))) algorithm
+        _ := match cond
+          case Expression.CLKCONST(clk = ClockKind.EVENT_CLOCK()) algorithm
+            print("create " + Expression.toString(cond) + "\n");
+          then ();
+          else ();
+        end match;
       then WhenStatement.toEquation(stmt, eqn.attr, false);
 
       else eqn;
