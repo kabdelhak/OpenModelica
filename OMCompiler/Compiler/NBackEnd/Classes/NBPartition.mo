@@ -477,9 +477,12 @@ public
       par.association := match par.association
         local
           Association association;
+          list<ComponentRef> names;
         case association as Association.CLOCKED() algorithm
-          association.holdEvents := List.any(VariablePointers.getVarNames(par.unknowns),
-            function UnorderedSet.contains(set = held_crefs));
+          names := VariablePointers.getVarNames(par.unknowns);
+          if not listEmpty(names) and List.any(names, function UnorderedSet.contains(set = held_crefs)) then
+            association.holdEvents := true;
+          end if;
         then association;
         else par.association;
       end match;
