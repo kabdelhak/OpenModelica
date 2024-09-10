@@ -537,6 +537,7 @@ public
       fixed_cref := cref;
     end if;
     (eqn, status, invertRelation) := solveSimple(eqn, fixed_cref);
+    
     // if the equation does not have a simple structure try to solve with other strategies
     if status == Status.UNPROCESSED then
       residual := Equation.getResidualExp(eqn);
