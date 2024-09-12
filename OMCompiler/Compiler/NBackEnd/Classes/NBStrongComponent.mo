@@ -70,6 +70,8 @@ protected
   import UnorderedMap;
   import UnorderedSet;
 
+  import System;
+
 public
   uniontype AliasInfo
     record ALIAS_INFO
@@ -519,7 +521,10 @@ public
 
       // sliced array equations - create all the single entries
       case SINGLE_COMPONENT() guard(Equation.isArrayEquation(comp.eqn)) algorithm
+        print("SINGLE_COMPONENT 1\n");
+        print(Equation.pointerToString(comp.eqn) + "\n");
         dependencies := Equation.collectCrefs(Pointer.access(comp.eqn), function Slice.getDependentCrefCausalized(set = set));
+        print("raw deps " + List.toString(dependencies, ComponentRef.toString) + "\n");
         scalarized_dependencies := Slice.getDependentCrefsPseudoArrayCausalized(BVariable.getVarName(comp.var), dependencies);
         for tpl in scalarized_dependencies loop
           (cref, dependencies) := tpl;
@@ -528,12 +533,14 @@ public
       then ();
 
       case SINGLE_COMPONENT() algorithm
+        print("SINGLE_COMPONENT 2\n");
         dependencies := Equation.collectCrefs(Pointer.access(comp.eqn), function Slice.getDependentCrefCausalized(set = set));
         dependencies := List.flatten(list(ComponentRef.scalarizeAll(dep) for dep in dependencies));
         updateDependencyMap(BVariable.getVarName(comp.var), dependencies, map, jacType);
       then ();
 
       case MULTI_COMPONENT() algorithm
+        print("MULTI_COMPONENT\n");
         dependencies := Equation.collectCrefs(Pointer.access(Slice.getT(comp.eqn)), function Slice.getDependentCrefCausalized(set = set));
         dependencies := list(ComponentRef.stripIteratorSubscripts(dep) for dep in dependencies);
         dependencies := List.flatten(list(ComponentRef.scalarizeAll(dep) for dep in dependencies));
@@ -546,6 +553,7 @@ public
 
       // sliced for equations - create all the single entries
       case SLICED_COMPONENT() guard(Equation.isForEquation(Slice.getT(comp.eqn))) algorithm
+        print("SLICED_COMPONENT for\n");
         eqn as Equation.FOR_EQUATION(iter = iter, body = {body}) := Pointer.access(Slice.getT(comp.eqn));
         dependencies := Equation.collectCrefs(eqn, function Slice.getDependentCrefCausalized(set = set));
         if ComponentRef.isEmpty(comp.var_cref) then
@@ -564,6 +572,7 @@ public
 
       // sliced array equations - create all the single entries
       case SLICED_COMPONENT() guard(Equation.isArrayEquation(Slice.getT(comp.eqn))) algorithm
+        print("SLICED_COMPONENT array\n");
         eqn := Pointer.access(Slice.getT(comp.eqn));
         dependencies := Equation.collectCrefs(eqn, function Slice.getDependentCrefCausalized(set = set));
         scalarized_dependencies := Slice.getDependentCrefsPseudoArrayCausalized(comp.var_cref, dependencies, comp.eqn.indices);
@@ -575,6 +584,7 @@ public
 
       // sliced regular equation.
       case SLICED_COMPONENT() algorithm
+        print("SLICED_COMPONENT else\n");
         eqn := Pointer.access(Slice.getT(comp.eqn));
         dependencies := Equation.collectCrefs(eqn, function Slice.getDependentCrefCausalized(set = set));
         dependencies := List.flatten(list(ComponentRef.scalarizeAll(dep) for dep in dependencies));
@@ -583,6 +593,7 @@ public
 
       // sliced for equations - create all the single entries
       case GENERIC_COMPONENT() guard(Equation.isForEquation(Slice.getT(comp.eqn))) algorithm
+        print("GENERIC_COMPONENT\n");
         eqn as Equation.FOR_EQUATION(iter = iter, body = {body}) := Pointer.access(Slice.getT(comp.eqn));
         dependencies := Equation.collectCrefs(eqn, function Slice.getDependentCrefCausalized(set = set));
         if ComponentRef.isEmpty(comp.var_cref) then
@@ -600,8 +611,8 @@ public
       then ();
 
       case ALGEBRAIC_LOOP(strict = strict) algorithm
+        print("ALGEBRAIC_LOOP\n");
         // collect iteration loop vars
-
         for var in strict.iteration_vars loop
           loop_vars := BVariable.getVarName(Slice.getT(var)) :: loop_vars;
         end for;
@@ -913,6 +924,13 @@ protected
     UnorderedSet<ComponentRef> set;
   algorithm
     try
+      print("sanitycheck -- ");
+      System.fflush();
+      print("checking deps of cref: " + ComponentRef.toString(cref));
+      System.fflush();
+      print(" depl: " + intString(listLength(dependencies)));
+      print(" deps: " + List.toString(dependencies, ComponentRef.toString) + "\n");
+      System.fflush();
       // replace non derivative dependencies with their previous dependencies (also remove self dependency)
       // (be careful with algebraic loops. this here assumes that cyclic dependencies have already been resolved)
       if jacType == NBJacobian.JacobianType.ODE then
