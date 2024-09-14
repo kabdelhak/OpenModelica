@@ -388,11 +388,13 @@ protected
     eq := Pointer.access(eq_ptr);
     crefTpl := match eq
       case BEquation.SCALAR_EQUATION() guard(isSimpleExp(eq.lhs) and isSimpleExp(eq.rhs)) algorithm
+        print("1 checking " + Equation.pointerToString(eq_ptr) + "\n");
         crefTpl := Expression.fold(eq.rhs, findCrefs, crefTpl);
         crefTpl := Expression.fold(eq.lhs, findCrefs, crefTpl);
       then crefTpl;
       // ToDo: ARRAY_EQUATION RECORD_EQUATION (AUX_EQUATION?)
       case BEquation.ARRAY_EQUATION() guard(isSimpleExp(eq.lhs) and isSimpleExp(eq.rhs)) algorithm
+        print("2 checking " + Equation.pointerToString(eq_ptr) + "\n");
         crefTpl := Expression.fold(eq.rhs, findCrefs, crefTpl);
         crefTpl := Expression.fold(eq.lhs, findCrefs, crefTpl);
       then crefTpl;
@@ -529,7 +531,7 @@ protected
 
       // time, parameter or constant found (nothing happens)
       case Expression.CREF()
-        guard(BVariable.isParamOrConst(BVariable.getVarPointer(exp.cref)) or ComponentRef.isTime(exp.cref))
+        guard(BVariable.isConst(BVariable.getVarPointer(exp.cref)) or ComponentRef.isTime(exp.cref))
       then tpl;
 
       // fail for record elements for now
@@ -544,6 +546,7 @@ protected
       case Expression.CREF()
         guard((tpl.varCount < 2) and not ComponentRef.hasSubscripts(exp.cref))
         algorithm
+          print("its okay to add: " + ComponentRef.toString(exp.cref) + "\n");
           // add the variable to the list and bump var count
           tpl.cr_lst := exp.cref :: tpl.cr_lst;
           tpl.varCount := tpl.varCount + 1;
