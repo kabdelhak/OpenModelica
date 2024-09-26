@@ -69,7 +69,7 @@ package HeatTransfer1D_TestCase "1D Heat transfer test case for array preserving
     parameter SI.ThermalConductivity lambda=74 "thermal conductivity of material";
     parameter SI.SpecificHeatCapacity c=450 "specifc heat capacity";
     parameter SI.Temperature T0=293.15 "initial temperature";
-    parameter Integer nT(min=1)=2 "number of inner nodes";
+    parameter Integer nT(min=1)=2 annotation(resizable = true) "number of inner nodes";
     SI.Temperature  T[nT](each start=T0, each fixed=true) "temperatures at inner nodes";
     SI.HeatFlowRate Q_flow[nT+1];
   protected
