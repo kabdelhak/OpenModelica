@@ -1899,7 +1899,7 @@ public
         lhs := Expression.fromCref(ComponentRef.mergeSubscripts(subs, var.name, true, true));
         eqn := makeAssignment(lhs, rhs, idx, context, iter, eqnAttr);
         // this could lead to non existing variables, should not be a problem though
-        renameIterators(eqn, "$i");
+        renameIterators(eqn, "$b");
       end if;
     end generateBindingEquation;
 

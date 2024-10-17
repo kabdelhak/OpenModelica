@@ -740,7 +740,6 @@ protected
       // uniquely name the equation
       Equation.createName(eqn_ptr, idx, NBEquation.SIMULATION_STR);
       // make all iterators the same and lower them
-      Equation.renameIterators(eqn_ptr, "$i");
       lowerEquationIterators(Pointer.access(eqn_ptr), VarData.getVariables(varData), set);
     end for;
     varData   := VarData.addTypedList(varData, UnorderedSet.toList(set), NBVariable.VarData.VarType.ITERATOR);
