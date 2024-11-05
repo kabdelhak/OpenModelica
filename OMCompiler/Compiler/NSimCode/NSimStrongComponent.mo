@@ -614,7 +614,7 @@ public
           list<Block> single_calls = {};
           UnorderedMap<ComponentRef, Integer> entwined_index_map;
           list<Integer> call_order = {};
-          Identifier ident;
+          Identifier ident;        
 
         case StrongComponent.SINGLE_COMPONENT() algorithm
           (tmp, simCodeIndices) := createEquation(Pointer.access(comp.var), Pointer.access(comp.eqn), comp.status, simCodeIndices, kind, simcode_map, equation_map);
