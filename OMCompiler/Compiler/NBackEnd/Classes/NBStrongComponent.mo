@@ -70,6 +70,8 @@ protected
   import UnorderedMap;
   import UnorderedSet;
 
+  import System;
+
 public
   uniontype AliasInfo
     record ALIAS_INFO
@@ -292,6 +294,8 @@ public
     input StrongComponent comp;
     output Integer i;
   algorithm
+    print("hashing: " + toString(comp) + "\n\n");
+    System.fflush();
     i := match comp
       case SINGLE_COMPONENT()   then BVariable.hash(comp.var) + Equation.hash(comp.eqn);
       case MULTI_COMPONENT()    then Equation.hash(Slice.getT(comp.eqn));

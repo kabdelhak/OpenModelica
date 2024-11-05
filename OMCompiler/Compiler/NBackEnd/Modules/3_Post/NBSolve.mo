@@ -96,10 +96,13 @@ public
         funcTree_ptr    := Pointer.create(bdae.funcTree);
         // The order here is important. Whatever comes first is declared the "original", same components afterwards will be alias
         // Has to be the same order as in SimCode!
+        print("ini\n");
         bdae.init       := list(solvePartition(par, funcTree_ptr, implicit_index_ptr, duplicate_map) for par in bdae.init);
+        print("after ini\n");
         if Util.isSome(bdae.init_0) then
           bdae.init_0   := SOME(list(solvePartition(par, funcTree_ptr, implicit_index_ptr, duplicate_map) for par in Util.getOption(bdae.init_0)));
         end if;
+        print("after ini 0\n");
         bdae.ode        := list(solvePartition(par, funcTree_ptr, implicit_index_ptr, duplicate_map) for par in bdae.ode);
         bdae.algebraic  := list(solvePartition(par, funcTree_ptr, implicit_index_ptr, duplicate_map) for par in bdae.algebraic);
         bdae.ode_event  := list(solvePartition(par, funcTree_ptr, implicit_index_ptr, duplicate_map) for par in bdae.ode_event);
