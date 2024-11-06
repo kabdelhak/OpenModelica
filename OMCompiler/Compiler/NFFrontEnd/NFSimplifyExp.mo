@@ -941,9 +941,7 @@ algorithm
   Expression.BINARY(e1, op, e2) := binaryExp;
   se1 := simplify(e1);
   se2 := simplify(e2);
-
   binaryExp := simplifyBinaryOp(se1, op, se2);
-
   if Flags.isSet(Flags.NF_EXPAND_OPERATIONS) and not Expression.hasArrayCall(binaryExp) then
     binaryExp := ExpandExp.expand(binaryExp);
   end if;
@@ -977,6 +975,7 @@ algorithm
       case Op.MUL then simplifyBinaryMul(exp1, op, exp2);
       case Op.DIV then simplifyBinaryDiv(exp1, op, exp2);
       case Op.POW then simplifyBinaryPow(exp1, op, exp2);
+      case Op.SCALAR_PRODUCT guard(Expression.isZero(exp1) or Expression.isZero(exp2)) then Expression.makeZero(op.ty);
       else Expression.BINARY(exp1, op, exp2);
     end match;
   end if;

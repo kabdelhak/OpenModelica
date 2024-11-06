@@ -571,6 +571,9 @@ public
       (derivative, diffArgs) := Differentiate.differentiateExpressionDump(residual, diffArgs, getInstanceName());
       derivative := SimplifyExp.simplifyDump(derivative, true, getInstanceName());
 
+        print("residual: " + Expression.toString(residual) + "\n");
+        print("cref " + ComponentRef.toString(fixed_cref) + "\n");
+        print("der: " + Expression.toString(derivative) + "\n");
       if Expression.isZero(derivative) then
         invertRelation := false;
         status := Status.UNSOLVABLE;
