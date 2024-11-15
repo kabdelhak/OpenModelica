@@ -208,9 +208,9 @@ public
       // unpack the equation
       eqn := if Equation.isDummy(eqn) then Pointer.access(List.first(Pointer.access(new_eqns))) else eqn;
     else
+      changed := false;
       if Flags.isSet(Flags.FAILTRACE) then
         Error.addCompilerWarning("Failed to inline following equation:\n" + Equation.toString(eqn));
-        changed := false;
       end if;
     end try;
   end inlineArrayConstructorSingle;
