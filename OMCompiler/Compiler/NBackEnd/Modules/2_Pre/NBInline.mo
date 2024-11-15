@@ -210,6 +210,7 @@ public
     else
       if Flags.isSet(Flags.FAILTRACE) then
         Error.addCompilerWarning("Failed to inline following equation:\n" + Equation.toString(eqn));
+        changed := false;
       end if;
     end try;
   end inlineArrayConstructorSingle;
