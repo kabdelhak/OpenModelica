@@ -389,6 +389,11 @@ algorithm
       zeroCrossings := listAppend(relations, sampleZC);
     end if;
 
+    print("simcode:\n");
+    for zc in zeroCrossings loop
+      print("rel: " + ExpressionDump.printExpStr(zc.relation_) + " has iters: " + boolString(Util.isSome(zc.iter)) + "\n");
+    end for;
+
     (clockedSysts, contSysts) := List.splitOnTrue(dlow.eqs, BackendDAEUtil.isClockedSyst);
     execStat("simCode: created event and clocks part");
 
