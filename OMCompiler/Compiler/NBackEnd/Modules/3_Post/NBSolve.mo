@@ -430,7 +430,7 @@ public
       (solved_slice, funcTree, implicit_index, solve_status) := solveForVarSlice(eqn_slice, var_slice, funcTree, kind, implicit_index, slicing_map);
     end if;
     // ToDo: if solve_status not explicit -> algebraic loop with residual and Status.IMPLICIT
-    comp := StrongComponent.GENERIC_COMPONENT(cref, solved_slice);
+    comp := StrongComponent.GENERIC_COMPONENT(cref, var_slice, solved_slice);
   end solveGenericEquationSlice;
 
   function solveSingleStrongComponent

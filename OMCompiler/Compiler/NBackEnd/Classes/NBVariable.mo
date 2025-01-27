@@ -80,6 +80,7 @@ public
 
 public
   type VariablePointer = Pointer<Variable> "mainly used for mapping purposes";
+  type SlicedVar = Slice<VariablePointer>;
 
   // ==========================================================================
   //               Single Variable constants and functions

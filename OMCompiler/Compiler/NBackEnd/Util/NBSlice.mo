@@ -78,6 +78,12 @@ public
     output T t = slice.t;
   end getT;
 
+  function hash
+    input Slice<T> slice;
+    input toStringT func;
+    output Integer hash = stringHashDjb2(func(getT(slice)));
+  end hash;
+
   function isEqual
     input Slice<T> slice1;
     input Slice<T> slice2;

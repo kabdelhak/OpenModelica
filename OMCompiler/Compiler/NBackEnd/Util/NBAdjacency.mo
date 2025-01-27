@@ -56,8 +56,10 @@ protected
   import BEquation = NBEquation;
   import NBEquation.{Equation, EquationAttributes, EquationPointers, Iterator, IfEquationBody, WhenEquationBody, WhenStatement};
   import Solve = NBSolve;
+  import StrongComponent = NBStrongComponent;
+  import Tearing = NBTearing;
   import BVariable = NBVariable;
-  import NBVariable.VariablePointers;
+  import NBVariable.{VariablePointers, SlicedVar};
 
   // Util import
   import Array;
@@ -401,9 +403,6 @@ public
       array<UnorderedMap<ComponentRef, Dependency>> dependencies;
       array<UnorderedMap<ComponentRef, Solvability>> solvabilities;
       array<UnorderedSet<ComponentRef>> repetitions;
-      UnorderedSet<ComponentRef> occ_set, rep_set;
-      UnorderedMap<ComponentRef, Dependency> dep_map;
-      UnorderedMap<ComponentRef, Solvability> sol_map;
       Mapping mapping;
     algorithm
       // only create matrix if there are any variables or equations
@@ -417,15 +416,12 @@ public
         // loop over each equation and create the corresponding maps and sets
         for eqn_ptr in EquationPointers.toList(eqns) loop
           index   := UnorderedMap.getSafe(Equation.getEqnName(eqn_ptr), eqns.map, sourceInfo());
-          dep_map := UnorderedMap.new<Dependency>(ComponentRef.hash, ComponentRef.isEqual);
-          sol_map := UnorderedMap.new<Solvability>(ComponentRef.hash, ComponentRef.isEqual);
-          rep_set := UnorderedSet.new(ComponentRef.hash, ComponentRef.isEqual);
-          occ_set := collectDependenciesEquation(Pointer.access(eqn_ptr), vars.map, dep_map, sol_map, rep_set);
+          // create new maps for each index individually, arrayCreate just uses the same instance multiple times
           equation_names[index] := Equation.getEqnName(eqn_ptr);
-          occurences[index]     := occ_set;
-          dependencies[index]   := dep_map;
-          solvabilities[index]  := sol_map;
-          repetitions[index]    := rep_set;
+          dependencies[index]   := UnorderedMap.new<Dependency>(ComponentRef.hash, ComponentRef.isEqual);
+          solvabilities[index]  := UnorderedMap.new<Solvability>(ComponentRef.hash, ComponentRef.isEqual);
+          repetitions[index]    := UnorderedSet.new(ComponentRef.hash, ComponentRef.isEqual);
+          occurences[index]     := collectDependenciesEquation(Pointer.access(eqn_ptr), vars.map, dependencies[index], solvabilities[index], repetitions[index]);
         end for;
         // create the index mapping and the matrix
         mapping := Mapping.create(eqns, vars);
@@ -1592,6 +1588,79 @@ public
       end match;
     end isNonlinearOrImplicit;
   end Solvability;
+
+  function collectDependenciesComponent
+    input StrongComponent comp;
+    input UnorderedSet<SlicedVar> row_vars;
+    input UnorderedMap<ComponentRef, Dependency> row;
+    input UnorderedMap<ComponentRef, Integer> lookup;
+  protected
+    // we might need these in the sparsity pattern
+    UnorderedSet<ComponentRef> rep_set = UnorderedSet.new(ComponentRef.hash, ComponentRef.isEqual);
+    // very likely not needed for sparsity pattern
+    UnorderedMap<ComponentRef, Solvability> sol_map = UnorderedMap.new<Solvability>(ComponentRef.hash, ComponentRef.isEqual);
+  algorithm
+    () := match comp
+      local
+        Tearing tearing;
+
+      case StrongComponent.SINGLE_COMPONENT() algorithm
+        UnorderedSet.add(Slice.SLICE(comp.var,{}), row_vars);
+        collectDependenciesEquation(Pointer.access(comp.eqn), lookup, row, sol_map, rep_set);
+      then ();
+
+      case StrongComponent.MULTI_COMPONENT() algorithm
+        for var in comp.vars loop
+          UnorderedSet.add(var, row_vars);
+        end for;
+        // this might need to be sliced
+        collectDependenciesEquation(Pointer.access(Slice.getT(comp.eqn)), lookup, row, sol_map, rep_set);
+      then ();
+
+      case StrongComponent.SLICED_COMPONENT() algorithm
+        UnorderedSet.add(comp.var, row_vars);
+        // this might need to be sliced
+        collectDependenciesEquation(Pointer.access(Slice.getT(comp.eqn)), lookup, row, sol_map, rep_set);
+      then ();
+
+      case StrongComponent.RESIZABLE_COMPONENT() algorithm
+        UnorderedSet.add(comp.var, row_vars);
+        // this might need to be sliced
+        collectDependenciesEquation(Pointer.access(Slice.getT(comp.eqn)), lookup, row, sol_map, rep_set);
+      then ();
+
+      case StrongComponent.GENERIC_COMPONENT() algorithm
+        UnorderedSet.add(comp.var, row_vars);
+        // this might need to be sliced
+        collectDependenciesEquation(Pointer.access(Slice.getT(comp.eqn)), lookup, row, sol_map, rep_set);
+      then ();
+
+      case StrongComponent.ENTWINED_COMPONENT() algorithm
+        for ent_comp in comp.entwined_slices loop
+          collectDependenciesComponent(ent_comp, row_vars, row, lookup);
+        end for;
+      then ();
+
+      case StrongComponent.ALGEBRAIC_LOOP(strict = tearing) algorithm
+        for var in tearing.iteration_vars loop
+          UnorderedSet.add(var, row_vars);
+        end for;
+        for eqn in tearing.residual_eqns loop
+          collectDependenciesEquation(Pointer.access(Slice.getT(eqn)), lookup, row, sol_map, rep_set);
+        end for;
+        for i in 1:arrayLength(tearing.innerEquations) loop
+          collectDependenciesComponent(tearing.innerEquations[i], row_vars, row, lookup);
+        end for;
+      then ();
+
+      case StrongComponent.ALIAS() algorithm
+        collectDependenciesComponent(comp.original, row_vars, row, lookup);
+      then ();
+      else  algorithm
+        Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for:\n" + StrongComponent.toString(comp)});
+      then fail();
+    end match;
+  end collectDependenciesComponent;
 
   function collectDependenciesEquation
     "collects all relevant component references from an equation

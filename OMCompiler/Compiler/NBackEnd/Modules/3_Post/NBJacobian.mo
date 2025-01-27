@@ -52,7 +52,7 @@ protected
 
   // Backend imports
   import Adjacency = NBAdjacency;
-  import NBAdjacency.Mapping;
+  import NBAdjacency.{Mapping, Dependency};
   import BEquation = NBEquation;
   import BVariable = NBVariable;
   import Differentiate = NBDifferentiate;
@@ -61,11 +61,12 @@ protected
   import Jacobian = NBackendDAE.BackendDAE;
   import Matching = NBMatching;
   import Replacements = NBReplacements;
+  import Slice = NBSlice;
   import Sorting = NBSorting;
   import StrongComponent = NBStrongComponent;
   import Partition = NBPartition;
   import NFOperator.{MathClassification, SizeClassification};
-  import NBVariable.{VariablePointers, VarData};
+  import NBVariable.{VariablePointers, VarData, SlicedVar};
 
   // Old Backend Import (remove once coloring ins ported)
   import SymbolicJacobian;
@@ -297,6 +298,54 @@ public
                             else "[ERR]";
     end match;
   end jacobianTypeString;
+
+  uniontype Sparsity
+    record SPARSITY
+      "sparsity pattern for a jacobian.
+      each row can be multi-dimensional and represents a strong component"
+      array<UnorderedSet<SlicedVar>> row_vars             "solved crefs in this row";
+      array<UnorderedMap<ComponentRef, Dependency>> row   "solved crefs depend on these";
+      //array<UnorderedSet<ComponentRef>> col_crefs         "independent crefs in this column";
+      //array<UnorderedMap<ComponentRef, Dependency>> col   "independent crefs affect these";
+      Expression nnz                                      "number of nonzero elements";
+    end SPARSITY;
+
+    function toString
+      input Sparsity sparsity;
+      output String str = StringUtil.headline_2("Sparsity Pattern (nnz: " + Expression.toString(sparsity.nnz) + ")");
+    algorithm
+      str := str + "\n" + StringUtil.headline_3("### Rows ###");
+      for i in 1:arrayLength(sparsity.row_vars) loop
+        str := str + UnorderedSet.toString(sparsity.row_vars[i], function Slice.toString(func = BVariable.pointerToString, maxLength=10)) + " --- "
+          + UnorderedMap.toString(sparsity.row[i], ComponentRef.toString, Dependency.toString, " ") + "\n";
+      end for;
+    end toString;
+
+    function initialize
+      input Integer size;
+      output Sparsity sparsity = SPARSITY(
+          row_vars  = arrayCreate(size, UnorderedSet.new(function Slice.hash(func = BVariable.pointerToString), function Slice.isEqual(func = BVariable.equalName))),
+          row       = arrayCreate(size, UnorderedMap.new<Dependency>(ComponentRef.hash, ComponentRef.isEqual)),
+          nnz       = Expression.INTEGER(0));
+    end initialize;
+
+    function create
+      input VariablePointers seeds;
+      input VariablePointers partials;
+      input array<StrongComponent> comps "Strong Components";
+      output Sparsity sparsity;
+    protected
+      Integer size = arrayLength(comps);
+      UnorderedMap<ComponentRef, Integer> lookup = UnorderedMap.merge(seeds.map, partials.map, sourceInfo());
+    algorithm
+      sparsity := initialize(size);
+      for i in 1:size loop
+        sparsity.row_vars[i]  := UnorderedSet.new(function Slice.hash(func = BVariable.pointerToString), function Slice.isEqual(func = BVariable.equalName));
+        sparsity.row[i]       := UnorderedMap.new<Dependency>(ComponentRef.hash, ComponentRef.isEqual);
+        Adjacency.collectDependenciesComponent(comps[i], sparsity.row_vars[i], sparsity.row[i], lookup);
+      end for;
+    end create;
+  end Sparsity;
 
   // necessary as wrapping value type for UnorderedMap
   type CrefLst = list<ComponentRef>;
