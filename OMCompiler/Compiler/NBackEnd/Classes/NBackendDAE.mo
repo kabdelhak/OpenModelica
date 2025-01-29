@@ -509,6 +509,7 @@ protected
         case _ guard(Variable.size(lowVar) == 0) then ();
 
         case _ guard(Variable.isTopLevelInput(lowVar)) algorithm
+          lowVar_ptr := BVariable.setFixed(lowVar_ptr, true);
           inputs_lst := lowVar_ptr :: inputs_lst;
           knowns_lst := lowVar_ptr :: knowns_lst;
         then ();

@@ -104,6 +104,7 @@ public
             (equations, initialEqs, initialVars) := createParameterEquations(varData.parameters, equations, initialEqs, initialVars, eqData.uniqueIndex, " ");
             (equations, initialEqs, initialVars) := createParameterEquations(varData.records, equations, initialEqs, initialVars, eqData.uniqueIndex, " Record ");
             (equations, initialEqs, initialVars) := createParameterEquations(varData.external_objects, equations, initialEqs, initialVars, eqData.uniqueIndex, " External Object ");
+            (equations, initialEqs, initialVars) := createParameterEquations(varData.top_level_inputs, equations, initialEqs, initialVars, eqData.uniqueIndex, " Top level Input ");
 
             // clone all simulation equations and add them to the initial equations.
             clonedEqns := EquationPointers.clone(equations, false);
