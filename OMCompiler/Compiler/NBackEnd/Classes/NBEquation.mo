@@ -2007,6 +2007,8 @@ public
         rhs := Expression.map(rhs, Expression.repairOperator);
         (sub_crefs, _) := Iterator.getFrames(iter);
         subs := list(Subscript.fromTypedExp(Expression.fromCref(cref)) for cref in sub_crefs);
+        print("var: " + BVariable.pointerToString(var_ptr) + "\n");
+        print("adding subs: " + List.toString(subs, Subscript.toString) + "\n");
         lhs := Expression.fromCref(ComponentRef.mergeSubscripts(subs, var.name, true, true));
         eqn := makeAssignment(lhs, rhs, idx, context, iter, eqnAttr);
         // this could lead to non existing variables, should not be a problem though
