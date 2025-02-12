@@ -634,6 +634,7 @@ public
         case Statement.FOR(range = SOME(range)) algorithm
           new_stmts := {};
           name := ComponentRef.fromNode(stmt.iterator, Type.INTEGER());
+          name := BackendDAE.lowerComponentReference(name, variables);
           new_frames := (name, range, NONE()) :: frames;
           for elem in stmt.body loop
             new_stmt := fromStatement(elem, bucket_ptr, eqn, variables, funcTree, new_frames);
@@ -983,13 +984,13 @@ protected
         bucket := Pointer.access(bucket_ptr);
 
         (eventInfo, auxiliary_vars, auxiliary_eqns) := EventInfo.create(bucket, varData.variables, eqData.uniqueIndex);
-
+        
         // add auxiliary variables
         varData.variables := VariablePointers.addList(auxiliary_vars, varData.variables);
         varData.unknowns  := VariablePointers.addList(auxiliary_vars, varData.unknowns);
         varData.initials  := VariablePointers.addList(auxiliary_vars, varData.initials);
         varData.discretes := VariablePointers.addList(auxiliary_vars, varData.discretes);
-
+        
         // add auxiliary equations
         eqData.equations  := EquationPointers.addList(auxiliary_eqns, eqData.equations);
         eqData.simulation := EquationPointers.addList(auxiliary_eqns, eqData.simulation);
