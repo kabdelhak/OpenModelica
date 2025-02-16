@@ -351,7 +351,9 @@ public
       (out_blcks, new_blcks, indices) := match blcks
         case WHEN() :: rest then filterWhen(rest, out_blcks, new_blcks, indices);
         case (blck as ALGORITHM()) :: rest algorithm
+          print("stmts before: " + List.toString(blck.stmts, function Statement.toString(indent=""), "", "\n", "","") + "\n");
           stmts := Statement.filterDiscrete(blck.stmts);
+          print("stmts after: " + List.toString(stmts, function Statement.toString(indent=""), "", "\n", "","") + "\n");
           if listLength(stmts) == 0 then
             // filtered everything out, skip entire block
             (out_blcks, new_blcks, indices) := filterWhen(rest, out_blcks, new_blcks, indices);
