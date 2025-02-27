@@ -1013,7 +1013,7 @@ protected
             // found to be false, because it can never be reached.
             result := lowerIfEquationBody(rest, init);
           else
-            if listEmpty(rest) and init then
+            if listEmpty(rest) then
               result := BEquation.IF_EQUATION_BODY(condition, eqns, NONE());
             else
               result := BEquation.IF_EQUATION_BODY(condition, eqns, SOME(lowerIfEquationBody(rest, init)));

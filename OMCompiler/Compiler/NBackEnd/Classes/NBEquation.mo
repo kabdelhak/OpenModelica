@@ -1320,11 +1320,7 @@ public
         case RECORD_EQUATION()        then eq.lhs;
         case FOR_EQUATION(body = {_}) then getLHS(List.first(eq.body));
         case IF_EQUATION()            algorithm
-          (lhs, success) := IfEquationBody.getLHS(eq.body);
-          if not success then
-            Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because LHS was ambiguous for: " + toString(eq)});
-            fail();
-          end if;
+          (lhs, _) := IfEquationBody.getLHS(eq.body);
         then lhs;
         else algorithm
           Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because LHS was ambiguous for: " + toString(eq)});
