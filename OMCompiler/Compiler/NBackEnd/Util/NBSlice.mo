@@ -1280,7 +1280,9 @@ protected
         if List.all(regulars, Util.id) then
           // II.1 all regular - single dependency per row.
           mode        := Mode.create(eqn_name, {original_cref}, false);
-          scalarized  := listReverse(ComponentRef.scalarizeAll(cref, true));
+          
+          scalarized  := BVariable.getRecordChildrenCref(cref);
+          scalarized  := List.flatten(listReverse(list(ComponentRef.scalarizeAll(child, true) for child in scalarized)));
           map3        := UnorderedMap.new<Val2>(ComponentRef.hash, ComponentRef.isEqual);
           for scal in scalarized loop
             UnorderedMap.add(scal, getCrefInFrameIndices(scal, frames, mapping, map), map3);
@@ -1553,17 +1555,43 @@ protected
     output list<Integer> scal_lst                           "scalar indices of cref";
   protected
     ComponentRef c;
+    Option<Integer> idx_opt;
     Integer var_arr_idx, var_start;
     list<Integer> sizes;
     list<Expression> subs;
   algorithm
     // try to get array index, if it fails, strip the subscripts
+    opt_idx := UnorderedMap.get(cref, map);
+    if not isSome(opt_idx) then
+      // remove subscripts
+      c := ComponentRef.stripSubscriptsAll(cref);
+      opt_idx := UnorderedMap.get(c, map);
+
+      if not isSome(opt_idx) then
+        // try to get to the parent
+        c := BVariable.getVarName(BVariable.getParent(BVariable.getVarPointer(c)));
+        opt_idx := UnorderedMap.get(c, map);
+
+        if not isSome(opt_idx) then
+          Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " could not resolve cref " + ComponentRef.toString(cref) + "."});
+          fail();
+        end if;
+      end if;
+    else
+      c := cref;
+    end if;
+
+
     (var_arr_idx, c)  := match UnorderedMap.get(cref, map)
       case SOME(var_arr_idx) then (var_arr_idx, cref);
       else algorithm
         c := ComponentRef.stripSubscriptsAll(cref);
       then (UnorderedMap.getSafe(c, map, sourceInfo()), c);
     end match;
+
+
+
+
     (var_start, _)  := mapping.var_AtS[var_arr_idx];
     sizes           := ComponentRef.sizes(c, false);
     subs            := ComponentRef.subscriptsToExpression(cref, true);
