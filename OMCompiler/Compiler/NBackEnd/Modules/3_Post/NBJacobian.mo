@@ -415,7 +415,10 @@ public
 
           // traverse all components and save cref dependencies (only column-wise)
           for i in 1:arrayLength(comps) loop
+            print("trying comp " + intString(i) + "\n"); System.fflush();
+            print(StrongComponent.toString(comps[i]) + "\n");
             StrongComponent.collectCrefs(comps[i], seedCandidates, partialCandidates, seed_mapping, partial_mapping, map, set, jacType);
+            print("done\n");System.fflush();
           end for;
 
           // create row-wise sparsity pattern
