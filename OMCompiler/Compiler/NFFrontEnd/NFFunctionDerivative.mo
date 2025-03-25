@@ -177,6 +177,8 @@ public
 
     mod := SCode.MOD(SCode.NOT_FINAL(), SCode.NOT_EACH(), orderMod::subMods,
              SOME(Absyn.CREF(Absyn.CREF_IDENT(AbsynUtil.pathString(InstNode.scopePath(fnDer.derivativeFn)),{}))), NONE(), info);
+           print("from : " + InstNode.name(fnDer.derivativeFn) + "\n");
+             print("creatn : " + AbsynUtil.pathString(InstNode.scopePath(fnDer.derivativeFn)) + "\n");
     subMod := SCode.NAMEMOD("derivative", mod);
   end toSubMod;
 

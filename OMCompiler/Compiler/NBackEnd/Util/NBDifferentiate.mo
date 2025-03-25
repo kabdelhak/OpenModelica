@@ -42,6 +42,8 @@ public
   import AvlSetPath;
   import DAE;
 
+  import SCodeDump;
+
   // NF imports
   import Algorithm = NFAlgorithm;
   import Binding = NFBinding;
@@ -1436,6 +1438,8 @@ public
             cachedData    := CachedData.FUNCTION({der_func}, true, false);
             der_func.node := InstNode.setFuncCache(node, cachedData);
 
+            print("adding fake der: " + Function.signatureString(der_func) + "\n");
+
             // create fake derivative
             funcDer := FunctionDerivative.FUNCTION_DER(
               derivativeFn          = der_func.node,
@@ -1468,6 +1472,11 @@ public
 
         // add function to function tree
         diffArguments.funcTree := FunctionTreeImpl.add(diffArguments.funcTree, der_func.path, der_func);
+            print("adding true der: " + Function.signatureString(der_func) + "\n");
+            print("create original : " + AbsynUtil.pathString(InstNode.scopePath(der_func.node)) + "\n");
+            print("create full : " + AbsynUtil.pathString(InstNode.scopePath(der_func.node, NFInstNode.InstNode.ScopeType.FULL)) + "\n");
+            print("node : " + InstNode.name(der_func.node) + "\n");
+
         // add new function as derivative to original function
         funcDer := FunctionDerivative.FUNCTION_DER(
           derivativeFn          = der_func.node,
@@ -1476,6 +1485,7 @@ public
           conditions            = {}, // possibly needs updating
           lowerOrderDerivatives = {}  // possibly needs updating
         );
+            print("last sub mod: " + SCodeDump.printModStr(SCodeUtil.prependSubModToMod(FunctionDerivative.toSubMod(funcDer), SCode.NOMOD())) + "\n");
         func.derivatives := List.appendElt(funcDer, func.derivatives);
         diffArguments.funcTree := FunctionTreeImpl.add(diffArguments.funcTree, func.path, func, FunctionTreeImpl.addConflictReplace);
       then der_func;
