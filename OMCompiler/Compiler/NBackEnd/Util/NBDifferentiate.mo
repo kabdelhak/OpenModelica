@@ -1388,7 +1388,7 @@ public
   algorithm
     der_func := match func
       local
-        InstNode node;
+        InstNode node, der_node;
         Pointer<Class> cls;
         Class new_cls;
         DifferentiationArguments funcDiffArgs;
@@ -1430,11 +1430,12 @@ public
             dummy_func    := func;
             node.cls      := Pointer.create(new_cls);
             der_func_name := NBVariable.FUNCTION_DERIVATIVE_STR + intString(listLength(func.derivatives));
-            node.name     := der_func_name + "." + node.name;
+            der_node      := InstNode.setTopLevelParentName(der_func_name, node);
+            print("before: " + InstNode.toString(node) + " after: " + InstNode.toString(der_node) + "\n");
             // create "fake" function from new node (update cache to get correct derivative name)
             der_func.path := AbsynUtil.prefixPath(der_func_name, der_func.path);
             cachedData    := CachedData.FUNCTION({der_func}, true, false);
-            der_func.node := InstNode.setFuncCache(node, cachedData);
+            der_func.node := InstNode.setFuncCache(der_node, cachedData);
 
             // create fake derivative
             funcDer := FunctionDerivative.FUNCTION_DER(
@@ -1455,9 +1456,9 @@ public
             // add them to new node
             sections.algorithms   := algorithms;
             new_cls.sections      := sections;
-            node.cls              := Pointer.create(new_cls);
+            der_node              := InstNode.updateClass(new_cls, der_node);
             cachedData            := CachedData.FUNCTION({der_func}, true, false);
-            der_func.node         := InstNode.setFuncCache(node, cachedData);
+            der_func.node         := InstNode.setFuncCache(der_node, cachedData);
             der_func.derivatives  := {};
           then new_cls;
 

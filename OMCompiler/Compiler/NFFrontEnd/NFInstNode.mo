@@ -849,6 +849,60 @@ uniontype InstNode
     end match;
   end setOrphanParent;
 
+  function setTopLevelParentName
+    "Sets the parent of a node if the node lacks a parent, otherwise get the parent and recurse."
+    input String name;
+    input output InstNode node;
+  algorithm
+    () := match node
+      // set parent
+      case CLASS_NODE(nodeType = InstNodeType.IMPLICIT_SCOPE()) algorithm
+        node.name := name + "IMP." + node.name;
+      then();
+      case CLASS_NODE(nodeType = InstNodeType.GENERATED_INNER()) algorithm
+        node.name := name + ".GEN" + node.name;
+      then();
+      case CLASS_NODE(nodeType = InstNodeType.REDECLARED_CLASS()) algorithm
+        node.name := name + "RED." + node.name;
+      then();
+      case CLASS_NODE(nodeType = InstNodeType.REDECLARED_COMP()) algorithm
+        node.name := name + "REC." + node.name;
+      then();
+      case CLASS_NODE(nodeType = InstNodeType.NORMAL_COMP()) algorithm
+        node.name := name + "NOC." + node.name;
+      then();
+      case CLASS_NODE(nodeType = InstNodeType.ROOT_CLASS()) algorithm
+        node.name := name + "ROT." + node.name;
+      then();
+      case CLASS_NODE(nodeType = InstNodeType.TOP_SCOPE()) algorithm
+        node.name := name + "TOS." + node.name;
+      then();
+      case CLASS_NODE(nodeType = InstNodeType.BUILTIN_CLASS()) algorithm
+        node.name := name + "BUI." + node.name;
+      then();
+      case CLASS_NODE(nodeType = InstNodeType.BASE_CLASS()) algorithm
+        node.name := name + "BAS." + node.name;
+      then();
+      case COMPONENT_NODE(parent = EMPTY_NODE()) algorithm
+        node.name := name + "EMP." + node.name;
+      then ();
+
+      // recurse
+      case CLASS_NODE() algorithm
+        node.name := name + InstNode.name(node.parentScope) + "+" + node.name;
+        node.parentScope := setTopLevelParentName(name, node.parentScope);
+      then ();
+      case COMPONENT_NODE() algorithm
+        node.name := name + "-" + node.name;
+        node.parent := setTopLevelParentName(name, node.parent);
+      then ();
+
+      // do nothing
+      else ();
+    end match;
+
+  end setTopLevelParentName;
+
   function getClass
     input InstNode node;
     output Class cls;
@@ -905,6 +959,10 @@ uniontype InstNode
           Pointer.update(node.cls, cls);
         then
           node;
+
+      else algorithm
+        Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for non class node: " + toString(node)});
+      then fail();
     end match;
   end updateClass;
 
