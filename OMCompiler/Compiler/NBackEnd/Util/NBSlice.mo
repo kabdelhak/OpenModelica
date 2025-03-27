@@ -1023,6 +1023,7 @@ public
 
   function naiveSeparation
     input list<Integer> indices "assumed to be sorted";
+    input Integer size;
     output list<list<Integer>> index_clusters = {};
   protected
     Integer i;
@@ -1030,7 +1031,10 @@ public
   algorithm
     if not listEmpty(indices) then
       i :: rest := listReverse(indices);
-      current := {i};
+      while intMod(i, size) <> 0 loop
+        i :: rest := rest;
+        current := i :: current;
+      end while;
       for i2 in rest loop
         if i-i2 == 1 then
           current := i2 :: current;

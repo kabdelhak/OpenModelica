@@ -2442,7 +2442,7 @@ public
       input list<Integer> sizes;
       input list<Frame> frames;
       input list<Integer> indices;
-      input Boolean naive = false;
+      input list<Integer> rest_sizes;
       output list<Pointer<Equation>> result;
     protected
       list<Integer> location;
@@ -2473,7 +2473,7 @@ public
         frame_locations                                 := List.zip(locations_T, frames);
         (frame_locations, replacements, frame_status)   := Slice.orderTransposedFrameLocations(frame_locations);
         if frame_status == FrameOrderingStatus.FAILURE then
-          if naive then
+          if not listEmpty(rest_sizes) then
             // already tried naive, need to fully scalarize
             result := List.flatten(list(sliceFor(body, iter, sizes, frames, {i}, true) for i in indices));
           else
