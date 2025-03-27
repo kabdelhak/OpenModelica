@@ -1037,6 +1037,14 @@ public
         Pointer.update(derivative, der_var);
       then BackendInfo.setVarKind(var.backendinfo, VariableKind.DUMMY_STATE(derivative));
 
+      // already a dummy states
+      case varKind as VariableKind.DUMMY_STATE() then var.backendinfo;
+
+      case varKind as VariableKind.STATE() algorithm
+        Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for " + ComponentRef.toString(getVarName(varPointer))
+          + " because it has no associated derivative."});
+      then fail();
+
       else algorithm
         Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for " + ComponentRef.toString(getVarName(varPointer)) + "."});
       then fail();

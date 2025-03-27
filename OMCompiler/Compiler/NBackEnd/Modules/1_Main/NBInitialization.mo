@@ -642,12 +642,15 @@ public
         e := match name
           case "homotopy" algorithm
             Pointer.update(hasHom, true);
+            print("found: " + Expression.toString(exp) + "\n");
+            print("result: " + Expression.toString(listGet(Call.arguments(exp.call), if init then 2 else 1)) + "\n");
           then listGet(Call.arguments(exp.call), if init then 2 else 1);
           else exp;
         end match;
       then e;
       else exp;
     end match;
+    
   end cleanupHomotopy;
 
   function removeWhenEquation
