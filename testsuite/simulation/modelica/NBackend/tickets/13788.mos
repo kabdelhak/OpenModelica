@@ -6,11 +6,15 @@ loadString("
 model MWE_13788
   parameter Real[2] y = {2*k for k in 0:1};
 end MWE_13788;
+
+model MWE3_13788
+  parameter Real[2] y = {2*k for k in {0.5, 0.33}};
+end MWE3_13788;
 "); getErrorString();
 
 setCommandLineOptions("--newBackend");
 
-simulate(MWE_13788); getErrorString();
+simulate(MWE3_13788); getErrorString();
 
 diffSimulationResults("MWE_13788_res.mat", "ReferenceFiles/MWE_13788_res.mat", "MWE_13788_diff.csv", 1e-8);
 

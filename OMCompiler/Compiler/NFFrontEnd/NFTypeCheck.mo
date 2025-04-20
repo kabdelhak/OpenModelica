@@ -240,6 +240,7 @@ algorithm
 
   // Give up if no operator functions could be found.
   if listEmpty(candidates) then
+  print(getInstanceName() + " ERROR\n");
     printUnresolvableTypeError(Expression.BINARY(exp1, op, exp2), {type1, type2}, info);
   end if;
 
@@ -306,11 +307,13 @@ algorithm
           case Op.DIV then checkOverloadedBinaryArrayDiv(exp1, type1, var1, op, exp2, type2, var2, candidates, context, info);
           else
             algorithm
+            print(getInstanceName() + " ERROR\n");
               printUnresolvableTypeError(Expression.BINARY(exp1, op, exp2), {type1, type2}, info, showErrors);
             then
               fail();
         end match;
       else
+      print(getInstanceName() + " ERROR\n");
         printUnresolvableTypeError(Expression.BINARY(exp1, op, exp2), {type1, type2}, info, showErrors);
       end if;
     end try;
@@ -408,6 +411,7 @@ algorithm
     outType := Type.CONDITIONAL_ARRAY(Type.UNKNOWN(), ty2, NFType.Branch.FALSE);
     outExp := e2;
   else
+    print(getInstanceName() + " ERROR\n");
     printUnresolvableTypeError(exp1, {type1, type2}, info);
   end if;
 
@@ -435,6 +439,7 @@ algorithm
   (e1, e2, _, mk) := matchExpressions(exp1, type1, exp2, type2, ALLOW_UNKNOWN);
 
   if not isCompatibleMatch(mk) then
+    print(getInstanceName() + " ERROR\n");
     printUnresolvableTypeError(Expression.BINARY(e1, op, e2), {type1, type2}, info);
   end if;
 
@@ -477,6 +482,7 @@ algorithm
             (_, ty) := matchOverloadedBinaryOperator(
               Expression.EMPTY(ty1), ty1, var1, op, Expression.EMPTY(ty2), ty2, var2, candidates, context, info, showErrors = false);
           else
+          print(getInstanceName() + " ERROR\n");
             printUnresolvableTypeError(Expression.BINARY(exp1, op, exp2), {type1, type2}, info);
           end try;
         else
@@ -559,6 +565,7 @@ algorithm
   end match;
 
   if not valid then
+  print(getInstanceName() + " ERROR\n");
     printUnresolvableTypeError(outExp, {type1, type2}, info);
   end if;
 
@@ -611,6 +618,7 @@ algorithm
           (_, outType) := matchOverloadedBinaryOperator(
             exp1, type1, var1, op, Expression.EMPTY(type2), ty, var2, candidates, context, info, showErrors = false);
         else
+        print(getInstanceName() + " ERROR\n");
           printUnresolvableTypeError(Expression.BINARY(exp1, op, exp2), {type1, exp2.ty}, info);
         end try;
 
@@ -683,6 +691,7 @@ algorithm
           (_, outType) := matchOverloadedBinaryOperator(
             Expression.EMPTY(type1), ty, var1, op, exp2, type2, var2, candidates, context, info, showErrors = false);
         else
+        print(getInstanceName() + " ERROR\n");
           printUnresolvableTypeError(Expression.BINARY(exp1, op, exp2), {type1, exp1.ty}, info);
         end try;
 
@@ -726,6 +735,7 @@ algorithm
   if Type.isArray(type1) and Type.isScalar(type2) then
     (outExp, outType) := checkOverloadedBinaryArrayScalar(exp1, type1, var1, op, exp2, type2, var2, candidates, context, info);
   else
+  print(getInstanceName() + " ERROR\n");
     printUnresolvableTypeError(Expression.BINARY(exp1, op, exp2), {type1, type2}, info);
   end if;
 end checkOverloadedBinaryArrayDiv;
@@ -756,6 +766,7 @@ algorithm
   end if;
 
   if not isCompatibleMatch(mk) then
+  print(getInstanceName() + " ERROR\n");
     printUnresolvableTypeError(Expression.BINARY(e1, op, e2), {type1, type2}, info);
   end if;
 
@@ -801,6 +812,7 @@ algorithm
           Expression.EMPTY(ty1), ty1, var1, op,
           Expression.EMPTY(ty2), ty2, var2, candidates, context, info);
       else
+      print(getInstanceName() + " ERROR\n");
         printUnresolvableTypeError(Expression.BINARY(exp1, op, exp2), {type1, type2}, info);
       end try;
     elseif is_array1 and is_array2 then
@@ -976,6 +988,7 @@ algorithm
   binaryExp := Expression.BINARY(e1, Operator.makeAdd(resultType), e2);
 
   if not valid then
+  print(getInstanceName() + " ERROR\n");
     printUnresolvableTypeError(binaryExp, {type1, type2}, info);
   end if;
 end checkBinaryOperationAdd;
@@ -1005,6 +1018,7 @@ algorithm
   binaryExp := Expression.BINARY(e1, Operator.makeSub(resultType), e2);
 
   if not valid then
+  print(getInstanceName() + " ERROR\n");
     printUnresolvableTypeError(binaryExp, {type1, type2}, info);
   end if;
 end checkBinaryOperationSub;
@@ -1085,6 +1099,7 @@ algorithm
   binaryExp := Expression.BINARY(e1, Operator.OPERATOR(resultType, op), e2);
 
   if not valid then
+  print(getInstanceName() + " ERROR\n");
     printUnresolvableTypeError(binaryExp, {type1, type2}, info);
   end if;
 end checkBinaryOperationMul;
@@ -1109,8 +1124,10 @@ algorithm
   // are compatible with each other we check if each type is compatible with Real.
   (e1, ty1, mk) := matchTypes(type1, Type.setArrayElementType(type1, Type.REAL()), exp1, ALLOW_UNKNOWN);
   valid := isCompatibleMatch(mk);
+  print("valid 1: " + boolString(valid) + "\n");
   (e2, ty2, mk) := matchTypes(type2, Type.setArrayElementType(type2, Type.REAL()), exp2, ALLOW_UNKNOWN);
   valid := valid and isCompatibleMatch(mk);
+  print("valid 2: " + boolString(valid) + "\n");
 
   // Division is always element-wise, the only difference between / and ./ is
   // which operands they accept.
@@ -1123,11 +1140,12 @@ algorithm
     case (false, _    , true) then (ty2, Operator.OPERATOR(ty2, Op.DIV_SCALAR_ARRAY));
 
     // array ./ array
-    case (true , _    , true)
+    case (true , _    , _)
       algorithm
         // If both operands are arrays, check that their dimensions are compatible.
         (_, _, mk) := matchArrayTypes(ty1, ty2, e1, ALLOW_UNKNOWN);
         valid := valid and isCompatibleMatch(mk);
+  print("valid 3: " + boolString(valid) + "\n");
       then
         (ty1, Operator.makeDiv(ty1));
 
@@ -1135,6 +1153,7 @@ algorithm
     else
       algorithm
         valid := false;
+  print("valid 4: " + boolString(valid) + "\n");
       then
         (ty1, Operator.makeDiv(ty1));
   end match;
@@ -1142,6 +1161,7 @@ algorithm
   binaryExp := Expression.BINARY(e1, op, e2);
 
   if not valid then
+  print(getInstanceName() + " ERROR\n");
     printUnresolvableTypeError(binaryExp, {type1, type2}, info);
   end if;
 end checkBinaryOperationDiv;
@@ -1181,6 +1201,7 @@ algorithm
   binaryExp := Expression.BINARY(e1, op, e2);
 
   if not valid then
+  print(getInstanceName() + " ERROR\n");
     printUnresolvableTypeError(binaryExp, {type1, type2}, info);
   end if;
 end checkBinaryOperationPow;
@@ -1227,6 +1248,7 @@ algorithm
   binaryExp := Expression.BINARY(e1, op, e2);
 
   if not valid then
+  print(getInstanceName() + " ERROR\n");
     printUnresolvableTypeError(binaryExp, {type1, type2}, info);
   end if;
 end checkBinaryOperationPowEW;
@@ -1294,6 +1316,7 @@ algorithm
   binaryExp := Expression.BINARY(e1, op, e2);
 
   if not valid then
+  print(getInstanceName() + " ERROR\n");
     printUnresolvableTypeError(binaryExp, {type1, type2}, info);
   end if;
 end checkBinaryOperationEW;
@@ -1325,6 +1348,7 @@ algorithm
   end match;
 
   if not Type.isNumeric(type1) then
+  print(getInstanceName() + " ERROR\n");
     printUnresolvableTypeError(unaryExp, {type1}, info);
   end if;
 end checkUnaryOperation;
@@ -1363,6 +1387,7 @@ algorithm
   // We only allow exact matches for operator overloading. e.g. no casting or generic matches.
   exactMatches := MatchedFunction.getExactMatches(matchedFunctions);
   if listEmpty(exactMatches) then
+  print(getInstanceName() + " ERROR\n");
     printUnresolvableTypeError(Expression.UNARY(inOp, inExp1), {inType1}, info);
     fail();
   end if;
@@ -1415,6 +1440,7 @@ algorithm
 
   if not isCompatibleMatch(mk) or
      not Type.isBoolean(Type.arrayElementType(resultType)) then
+     print(getInstanceName() + " ERROR\n");
     printUnresolvableTypeError(outExp, {type1, type2}, info);
   end if;
 end checkLogicalBinaryOperation;
@@ -1440,6 +1466,7 @@ algorithm
   outExp := Expression.LUNARY(Operator.setType(type1, operator), exp1);
 
   if not Type.isBoolean(Type.arrayElementType(type1)) then
+  print(getInstanceName() + " ERROR\n");
     printUnresolvableTypeError(outExp, {type1}, info);
   end if;
 end checkLogicalUnaryOperation;
@@ -1496,6 +1523,7 @@ algorithm
   end match;
 
   if not valid then
+  print(getInstanceName() + " ERROR\n");
     printUnresolvableTypeError(outExp, {type1, type2}, info);
   end if;
 end checkRelationOperation;
