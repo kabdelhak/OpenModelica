@@ -7522,10 +7522,13 @@ template genericIterator(SimIterator iter, Context context, Text &preExp, Text &
 ::= match iter
   case SIM_ITERATOR_RANGE() then
     let iter_ = contextCref(name, contextOther, &preExp, &varDecls, &auxFunction, &sub)
+    let start_ = daeExp(start, context, &preExp, &varDecls, &auxFunction)
+    let step_ = daeExp(step, context, &preExp, &varDecls, &auxFunction)
+    let size_ = daeExp(size, context, &preExp, &varDecls, &auxFunction)
     <<
-    int <%iter_%>_loc = tmp % <%size%>;
-    int <%iter_%> = <%step%> * <%iter_%>_loc + <%start%>;
-    tmp /= <%size%>;
+    int <%iter_%>_loc = tmp % <%size_%>;
+    int <%iter_%> = <%step_%> * <%iter_%>_loc + <%start_%>;
+    tmp /= <%size_%>;
     >>
   case SIM_ITERATOR_LIST() then
     let iter_ = contextCref(name, contextOther, &preExp, &varDecls, &auxFunction, &sub)
@@ -7542,10 +7545,11 @@ template forIterator(SimIterator iter, Context context, Text &preExp, Text &varD
 ::= match iter
   case SIM_ITERATOR_RANGE() then
     let iter_ = contextCref(name, contextOther, &preExp, &varDecls, &auxFunction, &sub)
-    let rel = if intGt(step, 0) then "<" else ">"
-    let sign = if intGt(step, 0) then "+" else "-"
+    let start_ = daeExp(start, context, &preExp, &varDecls, &auxFunction)
+    let step_ = daeExp(step, context, &preExp, &varDecls, &auxFunction)
+    let stop_ = daeExp(stop, context, &preExp, &varDecls, &auxFunction)
     <<
-    for(int <%iter_%>=<%start%>; <%iter_%><%rel%><%start%><%sign%><%size%>; <%iter_%>+=<%step%>){
+    for(int <%iter_%>=<%start_%>; (<%iter_%>*<%step_%>>0?:1:-1)<<%stop_%>; <%iter_%>+=<%step_%>){
     >>
   case SIM_ITERATOR_LIST() then
     let iter_ = contextCref(name, contextOther, &preExp, &varDecls, &auxFunction, &sub)
@@ -7559,8 +7563,11 @@ template forIteratorBody(SimIterator iter, Context context, Text &preExp, Text &
 ::= match iter
   case SIM_ITERATOR_RANGE() then
     let iter_ = contextCref(name, contextOther, &preExp, &varDecls, &auxFunction, &sub)
+    let start_ = daeExp(start, context, &preExp, &varDecls, &auxFunction)
+    let step_ = daeExp(step, context, &preExp, &varDecls, &auxFunction)
+    let size_ = daeExp(size, context, &preExp, &varDecls, &auxFunction)
     <<
-    (<%iter_%>-<%start%>)/<%step%>+<%size%>*(
+    (<%iter_%>-<%start_%>)/<%step_%>+<%size_%>*(
     >>
   case SIM_ITERATOR_LIST() then
     let iter_ = contextCref(name, contextOther, &preExp, &varDecls, &auxFunction, &sub)

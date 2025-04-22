@@ -1950,14 +1950,12 @@ protected function createIterator
 algorithm
   iter := match red_iter.exp
     local
-      DAE.Exp exp;
-      Integer start, step, stop;
+      DAE.Exp exp, step, size;
 
     case exp as DAE.RANGE() algorithm
-      start := DAEUtil.getInteger(exp.start);
-      step  := DAEUtil.getInteger(Util.getOptionOrDefault(exp.step, DAE.ICONST(1)));
-      stop  := DAEUtil.getInteger(exp.stop);
-    then BackendDAE.SIM_ITERATOR_RANGE(DAE.CREF_IDENT(red_iter.id, DAE.T_INTEGER_DEFAULT, {}), start, step, intDiv(stop-start, step) + 1);
+      step  := Util.getOptionOrDefault(exp.step, DAE.ICONST(1));
+      size  := Expression.expAdd(Expression.makeDiv(Expression.subExp(exp.stop, exp.start), step), DAE.ICONST(1));
+    then BackendDAE.SIM_ITERATOR_RANGE(DAE.CREF_IDENT(red_iter.id, DAE.T_INTEGER_DEFAULT, {}), exp.start, step, exp.stop, size);
 
     case exp as DAE.ARRAY() algorithm
     then BackendDAE.SIM_ITERATOR_LIST(DAE.CREF_IDENT(red_iter.id, DAE.T_INTEGER_DEFAULT, {}), list(DAEUtil.getInteger(e) for e in exp.array), listLength(exp.array));
