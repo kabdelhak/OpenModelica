@@ -2582,8 +2582,10 @@ public
         local
           list<ComponentRef> iter_lst;
           list<Expression> range_lst;
+          list<Option<Iterator>> map_lst;
           ComponentRef iter, lhs_rec, rhs_rec;
           Expression range;
+          Option<Iterator> map;
           list<Statement> body;
           Pointer<Variable> lhs, rhs;
           list<Pointer<Variable>> lhs_lst, rhs_lst;
@@ -2611,10 +2613,13 @@ public
         then {Statement.ASSIGNMENT(eqn.lhs, eqn.rhs, eqn.ty, eqn.source)};
 
         case FOR_EQUATION() algorithm
-          (iter_lst, range_lst) := Equation.Iterator.getFrames(eqn.iter);
+          (iter_lst, range_lst, map_lst) := Equation.Iterator.getFrames(eqn.iter);
           body := List.flatten(list(toStatement(body_eqn) for body_eqn in eqn.body));
-          for tpl in listReverse(List.zip(iter_lst, range_lst)) loop
-            (iter, range) := tpl;
+          for tpl in listReverse(List.zip3(iter_lst, range_lst, map_lst)) loop
+            (iter, range, map) := tpl;
+            if Util.isSome(map) then
+              //body := Iterator.createSubIterator(Util.getOption(map), iter) :: body;
+            end if;
             body := {Statement.FOR(
               iterator  = ComponentRef.node(iter),
               range     = SOME(range),
