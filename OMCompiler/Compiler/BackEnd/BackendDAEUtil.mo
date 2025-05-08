@@ -7727,9 +7727,6 @@ algorithm
   // Set updated globalKnownVars
   simDAE := setDAEGlobalKnownVars(simDAE, globalKnownVars);
 
-  // add initial assignmnents to all algorithms
-  simDAE := BackendDAEOptimize.addInitialStmtsToAlgorithms(simDAE, false);
-
   // remove homotopy and initial calls
   simDAE := Initialization.removeInitializationStuff(simDAE);
 
@@ -8452,7 +8449,8 @@ public function allPreOptimizationModules
     (BackendDump.dumpDAE, "dumpDAE"),
     (XMLDump.dumpDAEXML, "dumpDAEXML"),
     // This should indeed be at the end
-    (BackendDAETransform.collapseArrayExpressions, "collapseArrayExpressions")
+    (BackendDAETransform.collapseArrayExpressions, "collapseArrayExpressions"),
+    (function BackendDAEOptimize.addInitialStmtsToAlgorithms(isInitialSystem = false), "addInitialStmtsToAlgorithms")
   };
 end allPreOptimizationModules;
 

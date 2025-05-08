@@ -611,10 +611,12 @@ constant ConfigFlag PRE_OPT_MODULES = CONFIG_FLAG(12, "preOptModules",
     "comSubExp",
     "resolveLoops",
     "evalFunc",
-    "encapsulateWhenConditions"
+    "encapsulateWhenConditions",
+    "addInitialStmtsToAlgorithms"
     }),
   SOME(STRING_DESC_OPTION({
     ("introduceOutputAliases", Gettext.gettext("Introduces aliases for top-level outputs.")),
+    ("addInitialStmtsToAlgorithms", Gettext.gettext("Does the clock partitioning.")),
     ("clockPartitioning", Gettext.gettext("Does the clock partitioning.")),
     ("collapseArrayExpressions", collapseArrayExpressionsText),
     ("comSubExp", Gettext.gettext("Introduces alias assignments for variables which are assigned to simple terms i.e. a = b/c; d = b/c; --> a=d")),

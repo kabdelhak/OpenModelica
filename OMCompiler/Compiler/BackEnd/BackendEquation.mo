@@ -2518,6 +2518,8 @@ algorithm
     case BackendDAE.COMPLEX_EQUATION(left=e1, right=e2, source=source, attr=eqAttr) equation
       (res, _, {}, {}) = ExpressionSolve.solve2(e1, e2, crefExp, functions, NONE());
     then (BackendDAE.EQUATION(crefExp, res, source, eqAttr));
+
+    case BackendDAE.ALGORITHM() then eqn;
 /* These won't get solved
     BackendDAE.ALGORITHM
     BackendDAE.WHEN_EQUATION
