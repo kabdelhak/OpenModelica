@@ -4829,6 +4829,7 @@ algorithm
       list<DAE.ComponentRef> algoutCrefs;
       DAE.Expand crefExpand;
       DAE.ElementSource source;
+      list<DAE.Statement> statementLst;
 
     // EQUATION
     case (vars,BackendDAE.EQUATION(exp = e1,scalar = e2),_,_,_)
@@ -4883,16 +4884,25 @@ algorithm
 
     // ALGORITHM For now assume that algorithm will be solvable for
     // output variables. Mark this as solved and input variables as unsolvable:
-    case (vars,BackendDAE.ALGORITHM(size=size,alg=alg,source=source,expand=crefExpand),_,_,_)
+    case (vars,BackendDAE.ALGORITHM(size=size,alg=alg as DAE.ALGORITHM_STMTS(statementLst = statementLst),source=source,expand=crefExpand),_,_,_)
       equation
+        print("check 1\n"); System.fflush();
         // get outputs
-        algoutCrefs = CheckModel.checkAndGetAlgorithmOutputs(alg, source, crefExpand);
+        algoutCrefs = CheckModel.algorithmStatementListOutputs(statementLst, DAE.EXPAND()); // expand as we're in an algorithm
+
+        print("check 2\n"); System.fflush();
         // mark outputs as solved
         row = adjacencyRowAlgorithmOutputs(algoutCrefs,vars,mark,rowmark,{});
+
+        print("check 3\n"); System.fflush();
         // get inputs
         expl = Algorithm.getAllExps(alg);
+
+        print("check 4\n"); System.fflush();
         // mark inputs as unsolvable
         (_,(_,_,_,row)) = Expression.traverseExpList(expl, adjacencyRowAlgorithmInputs, (vars,mark,rowmark,row));
+
+        print("check 5\n"); System.fflush();
       then
         (row,size);
 
@@ -5030,9 +5040,13 @@ algorithm
       BackendDAE.AdjacencyMatrixElementEnhanced row;
     case ({},_,_,_,_) then iRow;
     case (cr::rest,_,_,_,_)
-      equation
-        (_,vindx) = BackendVariable.getVar(cr,inVariables);
-        row = adjacencyRowAlgorithmOutputs1(vindx,mark,rowmark,iRow);
+      algorithm
+        try
+          (_,vindx) := BackendVariable.getVar(cr,inVariables);
+          row := adjacencyRowAlgorithmOutputs1(vindx,mark,rowmark,iRow);
+        else
+          row := iRow;
+        end try;
       then
         adjacencyRowAlgorithmOutputs(rest,inVariables,mark,rowmark,row);
   end match;
@@ -7680,6 +7694,9 @@ algorithm
   // pre-optimization phase
   dae := preOptimizeDAE(inDAE, preOptModules);
 
+  // add initial assignmnents to all algorithms
+  dae := BackendDAEOptimize.addInitialStmtsToAlgorithms(dae, false);
+
   execStat("pre-optimization done (n="+String(daeSize(dae))+")");
   // transformation phase (matching and sorting using index reduction method)
   dae := causalizeDAE(dae, NONE(), matchingAlgorithm, daeHandler, true);
@@ -7715,9 +7732,6 @@ algorithm
 
   // Set updated globalKnownVars
   simDAE := setDAEGlobalKnownVars(simDAE, globalKnownVars);
-
-  // add initial assignmnents to all algorithms
-  simDAE := BackendDAEOptimize.addInitialStmtsToAlgorithms(simDAE, false);
 
   // remove homotopy and initial calls
   simDAE := Initialization.removeInitializationStuff(simDAE);
