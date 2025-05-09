@@ -2734,6 +2734,7 @@ algorithm
           Discrete output variables that do not occur get computed by pre().
           Ticket #5659
         */
+        //crefLst := UnorderedSet.unique_list(crefLst);
         crefLst := CheckModel.algorithmStatementListOutputs(statementLst, DAE.EXPAND()); // expand as we're in an algorithm
         for cr in crefLst loop
           try
@@ -4886,7 +4887,9 @@ algorithm
     case (vars,BackendDAE.ALGORITHM(size=size,alg=alg,source=source,expand=crefExpand),_,_,_)
       equation
         // get outputs
-        algoutCrefs = CheckModel.checkAndGetAlgorithmOutputs(alg, source, crefExpand);
+        //algoutCrefs = CheckModel.checkAndGetAlgorithmOutputs(alg, source, crefExpand);
+        algoutCrefs = CheckModel.algorithmStatementListOutputs(alg.statementLst, DAE.EXPAND()); // expand as we're in an algorithm
+
         // mark outputs as solved
         row = adjacencyRowAlgorithmOutputs(algoutCrefs,vars,mark,rowmark,{});
         // get inputs
@@ -5030,9 +5033,13 @@ algorithm
       BackendDAE.AdjacencyMatrixElementEnhanced row;
     case ({},_,_,_,_) then iRow;
     case (cr::rest,_,_,_,_)
-      equation
-        (_,vindx) = BackendVariable.getVar(cr,inVariables);
-        row = adjacencyRowAlgorithmOutputs1(vindx,mark,rowmark,iRow);
+      algorithm
+        try
+          (_,vindx) := BackendVariable.getVar(cr,inVariables);
+          row := adjacencyRowAlgorithmOutputs1(vindx,mark,rowmark,iRow);
+        else
+          row := iRow;
+        end try;
       then
         adjacencyRowAlgorithmOutputs(rest,inVariables,mark,rowmark,row);
   end match;
