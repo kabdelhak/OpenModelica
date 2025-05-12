@@ -7,10 +7,9 @@ loadModel(ScalableTestSuite); getErrorString();
 
 simulate(ScalableTestSuite.Elementary.WhenEvents.Verification.ManyEventsManyConditions); getErrorString();
 
-res := OpenModelica.Scripting.compareSimulationResults("ScalableTestSuite.Elementary.WhenEvents.Verification.ManyEventsManyConditions_res.mat",
+diffSimulationResults("ScalableTestSuite.Elementary.WhenEvents.Verification.ManyEventsManyConditions_res.mat",
   "ReferenceFiles/ScalableTestSuite.Elementary.WhenEvents.Verification.ManyEventsManyConditions_res.mat",
-  "ScalableTestSuite.Elementary.WhenEvents.Verification.ManyEventsManyConditions_diff.csv",0.01,0.0001,
-  {"x[1]"});
+  "ScalableTestSuite.Elementary.WhenEvents.Verification.ManyEventsManyConditions_diff.csv"); getErrorString();
 
 // Result:
 // true
