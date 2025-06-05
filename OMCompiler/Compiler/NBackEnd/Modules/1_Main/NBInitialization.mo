@@ -121,7 +121,6 @@ public
             (equations, initialEqs, initialVars) := createParameterEquations(varData.records, equations, initialEqs, initialVars, new_iters, eqData.uniqueIndex, " Record ");
             (equations, initialEqs, initialVars) := createParameterEquations(varData.external_objects, equations, initialEqs, initialVars, new_iters, eqData.uniqueIndex, " External Object ");
 
-
             // clone all initial variables and remove clocked variables
             clonedVars := VariablePointers.clone(initialVars, false);
             VariablePointers.mapRemovePtr(clonedVars, BVariable.isClocked);
