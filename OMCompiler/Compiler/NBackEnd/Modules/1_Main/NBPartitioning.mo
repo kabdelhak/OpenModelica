@@ -409,6 +409,16 @@ public
         bdae.ode := list(sys for sys guard(not Partition.Partition.isEmpty(sys)) in bdae.ode);
       then bdae;
 
+      // partition only ODE system for DAEMode (with ODE kind)
+      case (NBPartition.Kind.DAE, BackendDAE.MAIN(
+        varData = BVariable.VAR_DATA_SIM(unknowns = variables, clocks = clocks),
+        eqData = BEquation.EQ_DATA_SIM(simulation = equations, clocked = clocked)))
+      algorithm
+        bdae.ode := func(NBPartition.Kind.ODE, variables, equations, clocks, clocked, bdae.clockedInfo);
+        bdae.ode := list(sys for sys guard(not Partition.Partition.isEmpty(sys)) in bdae.ode);
+      then bdae;
+
+      // do not partition initial system
       case (NBPartition.Kind.INI, BackendDAE.MAIN(
         varData = BVariable.VAR_DATA_SIM(initials = variables, clocks = clocks),
         eqData = BEquation.EQ_DATA_SIM(initials = equations, clocked = clocked)))

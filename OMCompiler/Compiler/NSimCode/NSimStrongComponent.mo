@@ -821,8 +821,6 @@ public
           res_idx := res_idx + listLength(slice.indices);
         then tmp;
 
-        // ToDo: add all other cases!
-
         else algorithm
           Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for \n" + Equation.toString(eqn)});
         then fail();

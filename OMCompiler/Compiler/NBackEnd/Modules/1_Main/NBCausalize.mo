@@ -100,6 +100,9 @@ public
           bdae.funcTree := funcTree;
       then bdae;
 
+      // do the same as for ODE in DAEMode
+      case (NBPartition.Kind.DAE, _) then main(bdae, NBPartition.Kind.ODE);
+
       case (NBPartition.Kind.INI, BackendDAE.MAIN(init = partitions, varData = varData, eqData = eqData, funcTree = funcTree))
         algorithm
           if Flags.isSet(Flags.INITIALIZATION) then
@@ -111,15 +114,6 @@ public
             (partitions, varData, eqData, funcTree) := applyModule(Util.getOption(bdae.init_0), kind, varData, eqData, funcTree, func);
             bdae.init_0 := SOME(partitions);
           end if;
-          bdae.varData := varData;
-          bdae.eqData := eqData;
-          bdae.funcTree := funcTree;
-      then bdae;
-
-      case (NBPartition.Kind.DAE, BackendDAE.MAIN(dae = SOME(partitions), varData = varData, eqData = eqData, funcTree = funcTree))
-        algorithm
-          (partitions, varData, eqData, funcTree) := applyModule(partitions, kind, varData, eqData, funcTree, causalizeDAEMode);
-          bdae.dae := SOME(partitions);
           bdae.varData := varData;
           bdae.eqData := eqData;
           bdae.funcTree := funcTree;

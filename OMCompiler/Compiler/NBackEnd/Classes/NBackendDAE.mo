@@ -267,6 +267,7 @@ public
     list<String> followEquations = Flags.getConfigStringList(Flags.DEBUG_FOLLOW_EQUATIONS);
     Option<UnorderedSet<String>> eq_filter_opt;
     list<DAE.InlineType> inline_types = {DAE.NORM_INLINE(), DAE.BUILTIN_EARLY_INLINE(), DAE.EARLY_INLINE(), DAE.DEFAULT_INLINE()};
+    NBPartition.Kind kind;
   algorithm
     // if we filter dump for equations
     if listEmpty(followEquations) then
@@ -292,25 +293,27 @@ public
 
     if Flags.getConfigBool(Flags.DAE_MODE) then
       mainModules := {(DAEMode.main, "DAE-Mode")};
+      kind := NBPartition.Kind.DAE;
     else
       mainModules := {};
+      kind := NBPartition.Kind.ODE;
     end if;
 
     mainModules := listAppend({
-      (function Partitioning.main(kind = NBPartition.Kind.ODE),             "Partitioning"),
-      (function Causalize.main(kind = NBPartition.Kind.ODE),                "Causalize"),
+      (function Partitioning.main(kind = kind),             "Partitioning"),
+      (function Causalize.main(kind = kind),                "Causalize"),
       (function Inline.main(inline_types = {DAE.AFTER_INDEX_RED_INLINE()}, init = false), "After Index Reduction Inline"),
-      (Initialization.main,                                                 "Initialization")
+      (Initialization.main,                                 "Initialization")
     }, mainModules);
 
 
     // (do not change order SOLVE -> JACOBIAN)
     postOptModules := {
-      (Evaluation.removeDummies,    "Remove Dummies"),
-      (function Tearing.main(kind = NBPartition.Kind.ODE),    "Tearing"),
-      (Partitioning.categorize,                               "Categorize"),
-      (Solve.main,                                            "Solve"),
-      (function Jacobian.main(kind = NBPartition.Kind.ODE),   "Jacobian")
+      (Evaluation.removeDummies,            "Remove Dummies"),
+      (function Tearing.main(kind = kind),  "Tearing"),
+      (Partitioning.categorize,             "Categorize"),
+      (Solve.main,                          "Solve"),
+      (function Jacobian.main(kind = kind), "Jacobian")
     };
 
     (bdae, preOptClocks)  := applyModules(bdae, preOptModules, eq_filter_opt, ClockIndexes.RT_CLOCK_NEW_BACKEND_MODULE);

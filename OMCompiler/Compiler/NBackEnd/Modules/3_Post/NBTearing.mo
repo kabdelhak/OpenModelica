@@ -133,6 +133,9 @@ public
           bdae.funcTree := funcTree;
       then bdae;
 
+      // do the same as for ODE in DAEMode
+      case (NBPartition.Kind.DAE, _) then main(bdae, NBPartition.Kind.ODE);
+
       case (NBPartition.Kind.INI, BackendDAE.MAIN(init = partitions, funcTree = funcTree, eqData = BEquation.EQ_DATA_SIM(uniqueIndex = eq_index)))
         algorithm
           (partitions, funcTree) := tearingTraverser(partitions, funcs, funcTree, eq_index, kind);
@@ -141,13 +144,6 @@ public
             (partitions, funcTree) := tearingTraverser(Util.getOption(bdae.init_0), funcs, funcTree, eq_index, kind);
             bdae.init_0 := SOME(partitions);
           end if;
-          bdae.funcTree := funcTree;
-      then bdae;
-
-      case (NBPartition.Kind.DAE, BackendDAE.MAIN(dae = SOME(partitions), funcTree = funcTree, eqData = BEquation.EQ_DATA_SIM(uniqueIndex = eq_index)))
-        algorithm
-          (partitions, funcTree) := tearingTraverser(partitions, funcs, funcTree, eq_index, kind);
-          bdae.dae := SOME(partitions);
           bdae.funcTree := funcTree;
       then bdae;
 
@@ -286,7 +282,6 @@ protected
     end for;
     new_partitions := listReverse(new_partitions);
   end tearingTraverser;
-
 
   function initialize
     extends Module.tearingInterface;
