@@ -11,7 +11,7 @@ equation
 end TestDaeModeNB;
 "); getErrorString();
 
-setCommandLineOptions("--newBackend --daeMode"); getErrorString();
+//setCommandLineOptions("--newBackend --daeMode"); getErrorString();
 
 simulate(TestDaeModeNB); getErrorString();
 

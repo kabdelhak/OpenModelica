@@ -715,6 +715,7 @@ protected
 
     BVariable.checkVar func = getTmpFilterFunction(jacType);
   algorithm
+    print("JACOBIAN SYMBOLIC ENTRY \n"); System.fflush();
     if Util.isSome(strongComponents) then
       // filter all discrete strong components and differentiate the others
       // todo: mixed algebraic loops should be here without the discrete subsets
@@ -725,17 +726,21 @@ protected
 
     // create seed vars
     VariablePointers.mapPtr(seedCandidates, function makeVarTraverse(name = name, vars_ptr = seed_vars_ptr, map = diff_map, makeVar = BVariable.makeSeedVar, init = init));
+    print("JACOBIAN SYMBOLIC C1 \n"); System.fflush();
 
     // create pDer vars (also filters out discrete vars)
     (res_vars, tmp_vars) := List.splitOnTrue(VariablePointers.toList(partialCandidates), func);
     (tmp_vars, _) := List.splitOnTrue(tmp_vars, function BVariable.isContinuous(init = init));
+    print("JACOBIAN SYMBOLIC C2 \n"); System.fflush();
 
     for v in res_vars loop makeVarTraverse(v, name, pDer_vars_ptr, diff_map, function BVariable.makePDerVar(isTmp = false), init = init); end for;
     res_vars := Pointer.access(pDer_vars_ptr);
+    print("JACOBIAN SYMBOLIC C3 \n"); System.fflush();
 
     pDer_vars_ptr := Pointer.create({});
     for v in tmp_vars loop makeVarTraverse(v, name, pDer_vars_ptr, diff_map, function BVariable.makePDerVar(isTmp = true), init = init); end for;
     tmp_vars := Pointer.access(pDer_vars_ptr);
+    print("JACOBIAN SYMBOLIC C4 \n"); System.fflush();
 
     // Build differentiation argument structure
     diffArguments := Differentiate.DIFFERENTIATION_ARGUMENTS(
@@ -746,19 +751,23 @@ protected
       funcTree        = funcTree,
       scalarized      = seedCandidates.scalarized
     );
+    print("JACOBIAN SYMBOLIC C5 \n"); System.fflush();
 
     // differentiate all strong components
     (diffed_comps, diffArguments) := Differentiate.differentiateStrongComponentList(comps, diffArguments, idx, name, getInstanceName());
     funcTree := diffArguments.funcTree;
+    print("JACOBIAN SYMBOLIC C6 \n"); System.fflush();
 
     // collect var data (most of this can be removed)
     unknown_vars  := listAppend(res_vars, tmp_vars);
     all_vars      := unknown_vars;  // add other vars later on
+    print("JACOBIAN SYMBOLIC C7 \n"); System.fflush();
 
     seed_vars     := Pointer.access(seed_vars_ptr);
     aux_vars      := seed_vars;     // add other auxiliaries later on
     alias_vars    := {};
     depend_vars   := {};
+    print("JACOBIAN SYMBOLIC C8 \n"); System.fflush();
 
     varDataJac := BVariable.VAR_DATA_JAC(
       variables     = VariablePointers.fromList(all_vars),
@@ -772,9 +781,11 @@ protected
       tmpVars       = VariablePointers.fromList(tmp_vars),
       seedVars      = VariablePointers.fromList(seed_vars)
     );
+    print("JACOBIAN SYMBOLIC C9 \n"); System.fflush();
 
     (sparsityPattern, sparsityColoring) := SparsityPattern.create(seedCandidates, partialCandidates, strongComponents, jacType);
 
+    print("JACOBIAN SYMBOLIC C10 \n"); System.fflush();
     jacobian := SOME(Jacobian.JACOBIAN(
       name              = name,
       jacType           = jacType,
@@ -794,6 +805,8 @@ protected
     list<Pointer<Variable>> res_vars, tmp_vars;
     BVariable.checkVar func = getTmpFilterFunction(jacType);
   algorithm
+    print("JACOBIAN NUM ENTRY \n"); System.fflush();
+
     (res_vars, tmp_vars) := List.splitOnTrue(VariablePointers.toList(partialCandidates), func);
     (tmp_vars, _) := List.splitOnTrue(tmp_vars, function BVariable.isContinuous(init = init));
 
@@ -820,6 +833,8 @@ protected
       sparsityPattern   = sparsityPattern,
       sparsityColoring  = sparsityColoring
     ));
+    print("JACOBIAN NUM EXIT \n"); System.fflush();
+
   end jacobianNumeric;
 
   function jacobianNone

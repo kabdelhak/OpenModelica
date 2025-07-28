@@ -341,14 +341,19 @@ protected
   algorithm
     comp := match comp
       case StrongComponent.ALGEBRAIC_LOOP(strict = strict) algorithm
+        print("FINALIZE ENTRY \n"); System.fflush();
+
         // inline potential records
         acc := list(Inline.inlineRecordSliceEquation(eqn, variables, dummy_set, eq_index, true) for eqn in strict.residual_eqns);
+        print("FINALIZE CHECK 1 \n"); System.fflush();
 
         // create residual equations
         strict.residual_eqns := list(Slice.apply(eqn, function Equation.createResidual(new = true)) for eqn in List.flatten(acc));
+        print("FINALIZE CHECK 2 \n"); System.fflush();
 
         // create residual equations
         residual_comps := list(StrongComponent.fromSolvedEquationSlice(eqn) for eqn in strict.residual_eqns);
+        print("FINALIZE CHECK 3 \n"); System.fflush();
         // update jacobian to take slices (just to have correct inner variables and such)
         (jacobian, funcTree) := BJacobian.nonlinear(
           variables = VariablePointers.fromList(list(Slice.getT(var) for var in strict.iteration_vars)),
@@ -362,6 +367,8 @@ protected
         if Flags.isSet(Flags.TEARING_DUMP) then
           print(StrongComponent.toString(comp) + "\n");
         end if;
+                print("FINALIZE END \n"); System.fflush();
+
       then comp;
       else comp;
     end match;
@@ -386,6 +393,8 @@ protected
   algorithm
     comp := match comp
       case StrongComponent.ALGEBRAIC_LOOP(strict = strict) algorithm
+        print("MINIMAL ENTRY \n"); System.fflush();
+
         // split equations and variables for discretes and continuous
         vars_lst := list(Slice.getT(var) for var in strict.iteration_vars);
         eqns_lst := list(Slice.getT(eqn) for eqn in strict.residual_eqns);
@@ -406,6 +415,8 @@ protected
           fail();
         end if;
 
+        print("NUM discrete: " + intString(listLength(disc_vars)) + "\n"); System.fflush();
+
         if not listEmpty(disc_vars) then
           comp.mixed := true;
 
@@ -414,10 +425,15 @@ protected
           e := UnorderedMap.subMap(equations.map, list(Equation.getEqnName(eqn) for eqn in disc_eqns));
 
           // match the discretes to create inner components
+          print("CHECK 1\n"); System.fflush();
           adj         := Adjacency.Matrix.fromFull(full, v, e, equations, NBAdjacency.MatrixStrictness.MATCHING);
+          print("from full\n"); System.fflush();
           matching    := Matching.regular(NBMatching.EMPTY_MATCHING, adj, true, true);
+          print("matching\n"); System.fflush();
           adj         := Adjacency.Matrix.upgrade(adj, full, v, e, equations, NBAdjacency.MatrixStrictness.SORTING);
+          print("upgrade\n"); System.fflush();
           inner_comps := Sorting.tarjan(adj, matching, variables, equations); //probably need other variables and equations here?
+          print("sorted\n"); System.fflush();
           strict.innerEquations := listArray(inner_comps);
 
           // create residuals equations and iteration variables

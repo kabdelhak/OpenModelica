@@ -2030,6 +2030,7 @@ public
         case IF_EQUATION() algorithm
           eqn.body := IfEquationBody.createResidual(eqn.body, residualCref);
         then IfEquationBody.inline(eqn.body, eqn);
+        case ALGORITHM() then eqn;
         else algorithm
           // update RHS and LHS
           lhs := Expression.fromCref(residualCref);

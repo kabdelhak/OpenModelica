@@ -536,6 +536,8 @@ public
     input UnorderedSet<ComponentRef> set                      "unordered set of array crefs to check for relevance (index lookup)";
     input JacobianType jacType                                "sets the context";
   algorithm
+    print("JACOBIAN getting crefs for " + toString(comp) + "\n"); System.fflush();
+
     () := match comp
       local
         Pointer<Equation> eqn_ptr;
@@ -658,7 +660,9 @@ public
       /* ToDo add the others and let else case fail! */
 
       else ();
-    end match;
+    end match;   
+     print("JACOBIAN comp done \n"); System.fflush();
+
   end collectCrefs;
 
   function addScalarizedDependencies

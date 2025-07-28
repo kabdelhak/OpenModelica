@@ -48,7 +48,6 @@ protected
   import Inline = NBInline;
   import Jacobian = NBJacobian;
   import Partition = NBPartition;
-  import Tearing = NBTearing;
   import BVariable = NBVariable;
   import NBVariable.VariablePointer;
 
