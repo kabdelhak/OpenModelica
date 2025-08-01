@@ -1044,21 +1044,13 @@ function simplifyBinaryMul
   input Boolean switched = false;
   output Expression outExp;
 algorithm
-  outExp := match exp1
-    // 0 * e = 0
-    case Expression.INTEGER(value = 0) then exp1;
-    case Expression.REAL(value = 0.0) then exp1;
-
-    // 1 * e = e
-    case Expression.INTEGER(value = 1) then exp2;
-    case Expression.REAL(value = 1.0) then exp2;
-
-    else
-      if switched then
-        Expression.BINARY(exp2, op, exp1)
-      else
-        simplifyBinaryMul(exp2, op, exp1, true);
-  end match;
+  if Expression.isZero(exp1) or Expression.isZero(exp2) then
+    outExp := Expression.makeZero(op.ty);
+  elseif Expression.isOne(exp1) or Expression.isOne(exp2) then
+    outExp := Expression.makeOne(op.ty);
+  else
+    outExp := Expression.BINARY(exp1, op, exp2);
+  end if;
 end simplifyBinaryMul;
 
 function simplifyBinaryDiv
