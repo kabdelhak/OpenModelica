@@ -3987,7 +3987,11 @@ template literalExpConstArrayVal(Exp lit)
     case lit as BCONST(__) then boolStrC(lit.bool)
     case RCONST(__) then real
     case ENUM_LITERAL(__) then index
+    case SCONST(__) then '"<%Util.escapeModelicaStringToCString(string)%>"'
+    case RECORD(__) then '<%exps |>  exp => literalExpConstArrayVal(exp)%>'
     case lit as SHARED_LITERAL(__) then '_OMC_LIT<%lit.index%>'
+    case lit as MATRIX(ty=ty as T_ARRAY(__))
+    case lit as ARRAY(ty=ty as T_ARRAY(__)) then '<%flattenArrayExpToList(lit) |> exp => literalExpConstArrayVal(exp) ; separator=", "%>'
     else error(sourceInfo(), 'literalExpConstArrayVal failed: <%ExpressionDumpTpl.dumpExp(lit,"\"")%>')
 end literalExpConstArrayVal;
 
