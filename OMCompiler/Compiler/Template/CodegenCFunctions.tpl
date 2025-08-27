@@ -5522,16 +5522,26 @@ template arrayScalarRhs(Type ty, list<Exp> subs, String arrName, Context context
                Text &preExp, Text &varDecls, Text &auxFunction)
  "Helper to daeExpAsub."
 ::=
-  let arrayType = expTypeArray(ty)
-  let subsLenStr = listLength(subs)
   let subsValuesStr = (subs |> exp =>
       daeSubscriptExp(exp, context, &preExp, &varDecls, &auxFunction) ;separator=", ")
-
-  match arrayType
-    case "metatype_array" then
+  match ty
+    case T_METAUNIONTYPE(__)
+    case T_METAARRAY(__)
+    case T_METALIST(__)
+    case T_METATUPLE(__)
+    case T_METAOPTION(__)
+    case T_METAPOLYMORPHIC(__)
+    case T_METATYPE(__)
+    case T_METABOXED(__) then
       'arrayGet(<%arrName%>,<%subsValuesStr%>) /*arrayScalarRhs*/'
+    case T_COMPLEX(complexClassType = ClassInf.RECORD()) then
+      <<
+      <%arrName%>[<%subsValuesStr%>]
+      >>
     else
-    match context
+      let arrayType = expTypeArray(ty)
+      let subsLenStr = listLength(subs)
+      match context
         case FUNCTION_CONTEXT(is_parallel = true) then
           <<
           (*<%arrayType%>_element_addr_c99_<%subsLenStr%>(&<%arrName%>, <%subsLenStr%>, <%subsValuesStr%>))
