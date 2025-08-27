@@ -373,6 +373,9 @@ public
       fail();
     end if;
 
+
+    print("Trying to get " + intString(index) + " from size " + intString(arrayLength(data)) + " array.\n");
+    value := data[index];
     value := arrayGetNoBoundsChecking(data, index);
   end get;
 

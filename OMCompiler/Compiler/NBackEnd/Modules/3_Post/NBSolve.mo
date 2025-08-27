@@ -142,9 +142,11 @@ public
     Pointer<Integer> sliced_idx, comp_idx = Pointer.create(1);
     ComponentRef name;
     list<Pointer<Equation>> sliced_eqns;
+    array<StrongComponent> comps;
   algorithm
     if Util.isSome(partition.strongComponents) then
-      for comp in Util.getOption(partition.strongComponents) loop
+      comps := Util.getOption(partition.strongComponents);
+      for comp in comps loop
         solved_comps := match UnorderedMap.get(comp, duplicate_map)
           local list<StrongComponent> alias_comps;
           case SOME(alias_comps) then listAppend(alias_comps, solved_comps); // strong component already solved -> get alias comps
@@ -188,6 +190,7 @@ public
     StrongComponent implicit_comp;
   algorithm
     try
+      print("solving: " + StrongComponent.toString(comp) + "\n"); System.fflush();
       (solved_comps, solve_status) := match comp
         local
           Pointer<Equation> eqn_ptr;
@@ -374,6 +377,7 @@ public
         + " while trying to solve following strong component:\n" + StrongComponent.toString(comp) + "\n"});
       fail();
     end if;
+  print("done!!!!\n"); System.fflush();
   end solveStrongComponent;
 
   function solveGenericEquation
