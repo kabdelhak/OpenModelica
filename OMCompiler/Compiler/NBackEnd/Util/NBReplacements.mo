@@ -201,7 +201,7 @@ public
           // the cref (with subscripts) is found in replacements
           res := UnorderedMap.getOrFail(exp.cref, replacements);
         else
-          // try to strip the subscripts and see if that cref occurs
+          // try to strip the subscripts and see if Fthat cref occurs
           stripped := ComponentRef.stripSubscriptsAll(exp.cref);
           if UnorderedMap.contains(stripped, replacements) then
             subs  := ComponentRef.subscriptsAllFlat(exp.cref);
@@ -329,6 +329,7 @@ public
           else
             // add a "wild" binding. This will result in unused outputs being ignored.
             binding_exp := Expression.CREF(Type.UNKNOWN(), ComponentRef.WILD());
+            binding_exp_opt := InstNode.getBindingExpOpt(local_node);
           end if;
           addInputArgTpl((local_cref, binding_exp), local_replacements, false);
         end for;
