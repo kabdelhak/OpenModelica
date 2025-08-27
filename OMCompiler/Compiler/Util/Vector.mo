@@ -373,7 +373,8 @@ public
       fail();
     end if;
 
-    value := arrayGetNoBoundsChecking(data, index);
+    value := data[index];
+    //value := arrayGetNoBoundsChecking(data, index);
   end get;
 
   function getNoBounds
@@ -383,8 +384,11 @@ public
     input Vector<T> v;
     input Integer index;
     output T value;
+  protected
+    array<T> data = Mutable.access(v.data);
   algorithm
-    value := arrayGetNoBoundsChecking(Mutable.access(v.data), index);
+    value := data[index];
+    //value := arrayGetNoBoundsChecking(Mutable.access(v.data), index);
   end getNoBounds;
 
   function last

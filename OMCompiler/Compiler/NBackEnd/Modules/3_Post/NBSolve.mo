@@ -113,7 +113,10 @@ public
         bdae.ode        := list(solvePartition(par, funcTree_ptr, implicit_index_ptr, duplicate_map, bdae.varData, bdae.eqData) for par in bdae.ode);
         bdae.algebraic  := list(solvePartition(par, funcTree_ptr, implicit_index_ptr, duplicate_map, bdae.varData, bdae.eqData) for par in bdae.algebraic);
         bdae.ode_event  := list(solvePartition(par, funcTree_ptr, implicit_index_ptr, duplicate_map, bdae.varData, bdae.eqData) for par in bdae.ode_event);
+        print("check 1\n"); System.fflush();
         bdae.alg_event  := list(solvePartition(par, funcTree_ptr, implicit_index_ptr, duplicate_map, bdae.varData, bdae.eqData) for par in bdae.alg_event);
+        print("check 2\n"); System.fflush();
+        
         bdae.clocked    := list(solvePartition(par, funcTree_ptr, implicit_index_ptr, duplicate_map, bdae.varData, bdae.eqData) for par in bdae.clocked);
         bdae.funcTree   := Pointer.access(funcTree_ptr);
       then bdae;
@@ -142,16 +145,22 @@ public
     Pointer<Integer> sliced_idx, comp_idx = Pointer.create(1);
     ComponentRef name;
     list<Pointer<Equation>> sliced_eqns;
+    Option<list<StrongComponent>> alias_opt;
   algorithm
     if Util.isSome(partition.strongComponents) then
       for comp in Util.getOption(partition.strongComponents) loop
-        solved_comps := match UnorderedMap.get(comp, duplicate_map)
+        print("getting alias --- \n"); System.fflush();
+        alias_opt := UnorderedMap.get(comp, duplicate_map);
+        print("done --- \n"); System.fflush();
+        solved_comps := match alias_opt
           local list<StrongComponent> alias_comps;
-          case SOME(alias_comps) then listAppend(alias_comps, solved_comps); // strong component already solved -> get alias comps
+          case SOME(alias_comps) algorithm print("ALIAS!\n");  System.fflush(); then listAppend(alias_comps, solved_comps); // strong component already solved -> get alias comps
           else algorithm
+           print("NOT ALIAS!\n");  System.fflush();
             // solve strong component -> create alias comps
             (alias_comps, funcTree, implicit_index) := solveStrongComponent(comp, funcTree, kind, implicit_index, slicing_map, varData, eqData);
             UnorderedMap.add(comp, list(StrongComponent.createAlias(kind, partition.index, comp_idx, c) for c in alias_comps), duplicate_map);
+            print("DONE\n"); System.fflush();
           then listAppend(alias_comps, solved_comps);
         end match;
       end for;

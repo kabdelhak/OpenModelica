@@ -798,15 +798,21 @@ protected
     list<Integer> bucket;
   algorithm
     if Vector.size(map.buckets) > 0 then
+      print("check 1 find\n");
       hash := intMod(hashfn(key), Vector.size(map.buckets));
-
+print("check 2 find\n");
+      
       bucket := Vector.get(map.buckets, hash + 1);
+      print("check 3 find\n");
       for i in bucket loop
+        print("sub check " + intString(i) + " find\n");
         if eqfn(key, Vector.getNoBounds(map.keys, i)) then
           index := i;
           break;
         end if;
+        print("sub check " + intString(i) + " find done\n");
       end for;
+      print("final check find\n");
     else
       hash := 0;
     end if;

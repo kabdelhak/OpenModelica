@@ -544,14 +544,16 @@ public
     output Integer comp;
   algorithm
     comp := AbsynUtil.pathCompare(functionName(call1), functionName(call2));
-
+    print("path done\n");
     if comp == 0 then
       comp := Expression.compareList(arguments(call1), arguments(call2));
     end if;
-
+    print("args done\n");
+    
     if comp == 0 then
       comp := List.compare(iterators(call1), iterators(call2), compareIterator);
     end if;
+    print("iters done\n");
   end compare;
 
   function compareIterator

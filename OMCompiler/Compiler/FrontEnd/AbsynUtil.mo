@@ -1277,8 +1277,11 @@ algorithm
     case (_,Absyn.FULLYQUALIFIED()) then -1;
     case (Absyn.QUALIFIED(i1,p1),Absyn.QUALIFIED(i2,p2))
       equation
+        print(i1 + " -- " + i2);
         o = stringCompare(i1,i2);
+        print(" > " + intString(o) + "\n");
         o = if o == 0 then pathCompare(p1, p2) else o;
+        print("done " + i1 + " -- " + i2 + "\n");
       then o;
     case (Absyn.QUALIFIED(),_) then 1;
     case (_,Absyn.QUALIFIED()) then -1;
