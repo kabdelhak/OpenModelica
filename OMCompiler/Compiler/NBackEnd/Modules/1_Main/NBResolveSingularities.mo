@@ -123,6 +123,9 @@ public
     String stageStr;
     Boolean debug = false;
   algorithm
+    print(VariablePointers.toString(variables) + "\n");
+    print(EquationPointers.toString(equations) + "\n");
+    print(Matching.toString(matching) + "\n");
     // get the mapping and fail if there is none
     mapping := match mapping_opt
       case SOME(mapping) then mapping;
