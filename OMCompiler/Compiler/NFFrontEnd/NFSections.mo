@@ -455,5 +455,20 @@ public
     end match;
   end toFlatStream;
 
+  function toFlatString
+    input Sections sections;
+    input Absyn.Path scopeName;
+    input BaseModelica.OutputFormat format = BaseModelica.defaultFormat;
+    input String indent = "";
+    output String str;
+  protected
+    IOStream.IOStream s;
+  algorithm
+    s := IOStream.create(getInstanceName(), IOStream.IOStreamType.LIST());
+    s := toFlatStream(sections, scopeName, format, indent, s);
+    str := IOStream.string(s);
+    IOStream.delete(s);
+  end toFlatString;
+
 annotation(__OpenModelica_Interface="frontend");
 end NFSections;

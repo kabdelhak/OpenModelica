@@ -1900,7 +1900,11 @@ protected
   list<Expression> args;
 algorithm
   Expression.CALL(call = Call.TYPED_CALL(fn = fn, arguments = args)) := callExp;
-  result := evalBuiltinCall(fn, args, target);
+  try
+    result := evalBuiltinCall(fn, args, target);
+  else
+    result := callExp;
+  end try;
 end evalBuiltinCallExp;
 
 function evalBuiltinCall
@@ -2272,8 +2276,8 @@ algorithm
     fill_exp :: dims := args;
     result := Expression.fillArgs(fill_exp, dims);
   else
-    printWrongArgsError(getInstanceName(), args, sourceInfo());
-    fail();
+    //printWrongArgsError(getInstanceName(), args, sourceInfo());
+    //fail();
   end try;
 end evalBuiltinFill;
 

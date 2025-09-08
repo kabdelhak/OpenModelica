@@ -491,7 +491,6 @@ algorithm
             (vars, sections) := flattenComponent(c, prefix, visibility, SOME(b), vars, sections, deletedVars, settings);
           end for;
         end if;
-
         sections := flattenSections(cls.sections, Prefix.toNonIndexedPrefix(prefix), sections, settings);
       then
         ();
