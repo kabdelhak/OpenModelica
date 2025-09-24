@@ -367,6 +367,9 @@ simulationnewbackend-functions.log: omc-diff
 simulationnewbackend-index_reduction.log: omc-diff
 	$(MAKE) -C simulation/modelica/NBackend/index_reduction/ -f Makefile test > $@
 	@echo $@ done
+simulationnewbackend-init_xml.log: omc-diff
+	$(MAKE) -C simulation/modelica/NBackend/init_xml/ -f Makefile test > $@
+	@echo $@ done
 simulationnewbackend-ModelicaTest.log: omc-diff
 	$(MAKE) -C simulation/modelica/NBackend/ModelicaTest/ -f Makefile test > $@
 	@echo $@ done
