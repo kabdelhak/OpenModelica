@@ -5601,7 +5601,7 @@ template daeExpCrefLhsSimContext(Exp ecr, Context context, Text &preExp,
 
   case ecr as CREF(componentRef=cr, ty=ty) then
     if crefIsScalarWithAllConstSubs(cr) then
-        contextCrefIsPre(cr,context, &auxFunction, isPre)
+      contextCrefIsPre(cr,context, &auxFunction, isPre)
     else if crefIsScalarWithVariableSubs(cr) then
       '(&<%contextCrefIsPre(crefStripSubs(cr),context, &auxFunction, isPre)%>)<%indexSubs(crefDims(cr), crefSubs(crefArrayGetFirstCref(cr)), context, &preExp, &varDecls, &auxFunction)%>'
     else
@@ -6983,7 +6983,7 @@ case ARRAY(__) then
       let prefix = if scalar then '(<%expTypeFromExpModelica(e)%>)' else ""
       '<%prefix%><%daeExp(e, context, &preExp, &varDecls, &auxFunction)%>'
     ;separator=", ")
-  let &preExp += 'array_alloc_<%scalarPrefix%><%arrayTypeStr%>(&<%arrayVar%>, <%listLength(array)%><%if params then ", "%><%params%>);<%\n%>'
+  let &preExp += 'array_alloc_<%scalarPrefix%><%arrayTypeStr%>(&<%arrayVar%>, <%listLength(array)%><%if params then ", "%><%params%>);<%\n%>' 
   arrayVar
 end daeExpArray;
 
