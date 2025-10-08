@@ -962,6 +962,11 @@ public
     literal := listGet(literals, index);
   end nthEnumLiteral;
 
+  function hash
+    input Type ty;
+    output Integer i = stringHashDjb2(toString(ty));
+  end hash;
+
   function toString
     input Type ty;
     output String str;
