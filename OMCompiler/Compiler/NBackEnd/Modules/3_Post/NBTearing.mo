@@ -82,7 +82,7 @@ public
 
   function hash
     input Tearing set;
-    output Integer i = stringHashDjb2(toString(set, ""));
+    output Integer i = -1;
   end hash;
 
   function isEqual
