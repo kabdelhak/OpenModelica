@@ -716,6 +716,7 @@ protected
     VariableKind varKind;
     VariableAttributes attributes;
     Annotations annotations;
+    Binding binding;
   algorithm
     try
       attributes := VariableAttributes.create(var.typeAttributes, var.ty, var.attributes, var.children, var.comment);
@@ -725,7 +726,24 @@ protected
       var.backendinfo := match var.backendinfo
         case BackendInfo.BACKEND_INFO(varKind = VariableKind.FRONTEND_DUMMY()) algorithm
           (varKind, attributes) := lowerVariableKind(var, attributes, var.ty);
+          // make adjustments to attributes based on variable kind
+          (binding, attributes) := match varKind
+            case VariableKind.PARAMETER() then (var.binding, VariableAttributes.setFixed(attributes, var.ty, true, false));
+            case VariableKind.CONSTANT() guard(not Binding.isBound(var.binding)) algorithm
+              binding := match VariableAttributes.getStartAttribute(attributes)
+                local
+                  Expression exp;
+                case SOME(exp) then Binding.makeFlat(exp, NFPrefixes.Variability.CONSTANT, NFBinding.Source.GENERATED);
+                else algorithm
+                  Error.addMessage(Error.INTERNAL_ERROR, {getInstanceName() + " failed. Constant variable " + Variable.toString(var) + " has neither a binding nor a start value."});
+                then fail();
+              end match;
+            then (binding, attributes);
+            else (var.binding, attributes);
+          end match;
+          var.binding := binding;
         then BackendInfo.BACKEND_INFO(varKind, attributes, annotations, NONE(), NONE(), NONE(), NONE());
+
         else BackendInfo.setAttributes(var.backendinfo, attributes, annotations);
       end match;
 
@@ -810,12 +828,6 @@ protected
       else algorithm
         Error.addMessage(Error.INTERNAL_ERROR, {getInstanceName() + " failed."});
       then fail();
-    end match;
-
-    // make adjustments to attributes based on variable kind
-    attributes := match varKind
-      case VariableKind.PARAMETER() then VariableAttributes.setFixed(attributes, ty, true, false);
-      else attributes;
     end match;
   end lowerVariableKind;
 
