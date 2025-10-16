@@ -293,6 +293,7 @@ public
       input SimVar simVar;
       output OldSimCodeVar.SimVar oldSimVar;
     algorithm
+      print("converting: " + toString(simVar) + "\n");
       oldSimVar := OldSimCodeVar.SIMVAR(
         name                = ComponentRef.toDAE(simVar.name),
         varKind             = convertVarKind(simVar.varKind),

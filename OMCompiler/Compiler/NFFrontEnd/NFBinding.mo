@@ -527,11 +527,11 @@ public
     output DAE.Binding outBinding;
   algorithm
     outBinding := match binding
-      case WILD()    then DAE.UNBOUND();
-      case UNBOUND() then DAE.UNBOUND();
+      case WILD()     algorithm print(Binding.toString(binding) + " yea this is it 1\n"); then DAE.UNBOUND();
+      case UNBOUND()  algorithm print(Binding.toString(binding) + " yea this is it 2\n"); then DAE.UNBOUND();
       case TYPED_BINDING() then makeDAEBinding(binding.bindingExp, binding.variability);
       case FLAT_BINDING() then makeDAEBinding(binding.bindingExp, binding.variability);
-      case CEVAL_BINDING() then DAE.UNBOUND();
+      case CEVAL_BINDING() algorithm print(Binding.toString(binding) + " yea this is it 3\n"); then DAE.UNBOUND();
       case INVALID_BINDING()
         algorithm
           Error.addTotalMessages(binding.errors);

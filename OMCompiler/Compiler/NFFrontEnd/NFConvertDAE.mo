@@ -135,6 +135,7 @@ protected
   Option<DAE.VariableAttributes> var_attr;
   Option<DAE.Exp> binding_exp;
 algorithm
+  print("converting var " + Variable.toString(var) + "\n");
   binding_exp := Binding.toDAEExp(var.binding);
   var_attr := convertVarAttributes(var.typeAttributes, var.ty, var.attributes);
   daeVar := makeDAEVar(var.name, var.ty, binding_exp, var.attributes,
@@ -1147,6 +1148,8 @@ protected
   Option<DAE.Exp> binding;
   list<tuple<String, Binding>> ty_attr;
 algorithm
+  print("function param: " + InstNode.toString(node) + "\n");
+
   comp := InstNode.component(node);
 
   element := match comp
@@ -1263,6 +1266,7 @@ protected
   Component comp;
   Attributes attr;
 algorithm
+  print("make type var: " + InstNode.toString(component) + "\n");
   comp := InstNode.component(InstNode.resolveOuter(component));
   attr := Component.getAttributes(comp);
 
@@ -1287,6 +1291,8 @@ protected
   Boolean bind_from_outside;
   Type ty;
 algorithm
+  print("make type record var: " + InstNode.toString(component) + "\n");
+
   comp := InstNode.component(component);
   attr := Component.getAttributes(comp);
 
@@ -1297,6 +1303,7 @@ algorithm
   end if;
 
   binding := Component.getBinding(comp);
+  print("binding: " + Binding.toString(binding) + "\n");
   binding := Binding.mapExp(binding, stripScopePrefixExp);
   binding := Flatten.flattenBinding(binding, NFFlatten.EMPTY_PREFIX);
   bind_from_outside := Binding.source(binding) == NFBinding.Source.MODIFIER;
