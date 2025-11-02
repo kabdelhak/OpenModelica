@@ -10,11 +10,19 @@ equation
   y = {time, time};
   M * der(x) = y.*x;
 end MWE_14574;
+
+model MWE_14574_2
+  Real[2] x,y, T;
+equation
+  y = {time, time};
+  der(T) = {1, 1};
+  T .* der(x) = y.*x;
+end MWE_14574_2;
 "); getErrorString();
 
 setCommandLineOptions("--newBackend -d=dumpSimplify"); getErrorString();
 
-simulate(MWE_14574); getErrorString();
+simulate(MWE_14574_2); getErrorString();
 
 diffSimulationResults("MWE_14574_res.mat", "ReferenceFiles/MWE_14574_res.mat", "MWE_14574_diff.csv", 1e-8);
 

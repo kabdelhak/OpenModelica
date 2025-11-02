@@ -49,6 +49,7 @@ public
   import NFFunction.Function;
   import Operator = NFOperator;
   import SimplifyExp = NFSimplifyExp;
+  import Statement = NFStatement;
   import Type = NFType;
   import Variable = NFVariable;
 
@@ -194,7 +195,7 @@ public
           Equation eqn;
           Slice<VariablePointer> var_slice;
           Slice<EquationPointer> eqn_slice;
-          ComponentRef var_cref, eqn_cref;
+          ComponentRef var_cref, eqn_cref, post_cref;
           StrongComponent generic_comp, solved_comp;
           list<StrongComponent> entwined_slices = {};
           Tearing strict;
@@ -211,6 +212,7 @@ public
           UnorderedMap<ComponentRef, Expression> exp_repl;
           list<Slice<VariablePointer>> iter_vars;
           list<Slice<EquationPointer>> residuals;
+          list<Statement> head_stmts;
 
         case StrongComponent.SINGLE_COMPONENT() algorithm
           (eqn, funcTree, solve_status, implicit_index) := solveSingleStrongComponent(Pointer.access(comp.eqn), Pointer.access(comp.var), funcTree, kind, implicit_index, slicing_map, varData, eqData);
@@ -221,6 +223,14 @@ public
           eqn := Pointer.access(eqn_ptr);
           (solved_comp, solve_status) := match eqn
             case Equation.ALGORITHM(alg = alg) algorithm
+              if Flags.isSet(Flags.DUMP_SOLVE) then        
+                print("\n##########################################\nSTART - Solve\n\n");
+                print("Solve Input:\n");
+                print("### " + Equation.toString(eqn) + "\n\n");
+              end if;
+
+              // possible solved pre variables will be solved in head statements
+              head_stmts := {};
               // X = set of solved variables
               solved_crefs := list(BVariable.getVarName(Slice.getT(var)) for var in comp.vars);
 
@@ -228,23 +238,43 @@ public
               inputs := List.flatten(list(BVariable.getRecordChildrenCrefOrSelf(i) for i in alg.inputs));
               input_crefs := UnorderedSet.fromList(inputs, ComponentRef.hash, ComponentRef.isEqual);
               // Y^ <- Y U X set of inputs that are solved (iteration vars, no need to create temporary variables)
+              // do not collect pre() variables, add statements at the algorithm equating the to their post() variables instead
               solved_inputs := UnorderedSet.new(ComponentRef.hash, ComponentRef.isEqual);
               for solved_cref in solved_crefs loop
                 if UnorderedSet.contains(solved_cref, input_crefs) then
-                  UnorderedSet.add(solved_cref, solved_inputs);
+                  if BVariable.checkCref(solved_cref, BVariable.isPrevious, sourceInfo()) then
+                    post_cref := BVariable.getPartnerCref(solved_cref, BVariable.getVarPre);
+                    head_stmts := Statement.ASSIGNMENT(Expression.fromCref(solved_cref), Expression.fromCref(post_cref), ComponentRef.getSubscriptedType(solved_cref), DAE.emptyElementSource) :: head_stmts;
+                  else
+                    UnorderedSet.add(solved_cref, solved_inputs);
+                  end if;
                 end if;
               end for;
-
+              
               // Z = set of outputs
               outputs := List.flatten(list(BVariable.getRecordChildrenCrefOrSelf(o) for o in alg.outputs));
               output_crefs := UnorderedSet.fromList(outputs, ComponentRef.hash, ComponentRef.isEqual);
               // Z^ <- Z \ X set of outputs that are not solved
               for solved_cref in solved_crefs loop
                 UnorderedSet.remove(solved_cref, output_crefs);
-              end for;
+              end for;  
 
-              if UnorderedSet.isEmpty(output_crefs) then
-                // EXPLICIT: no unsolved outputs
+              if Flags.isSet(Flags.DUMP_SOLVE) then
+                print(StringUtil.headline_4("Y^ <- Y U X set of inputs that are solved"));
+                print(UnorderedSet.toString(solved_inputs, ComponentRef.toString) + "\n\n");
+                print(StringUtil.headline_4("Z^ <- Z \\ X set of outputs that are not solved"));
+                print(UnorderedSet.toString(output_crefs, ComponentRef.toString) + "\n\n");
+              end if;
+
+              // add the tail statements to the algorithm
+              if not listEmpty(head_stmts) then
+                alg.statements := listAppend(alg.statements,head_stmts) annotation(__OpenModelica_DisableListAppendWarning=true);
+                eqn.alg := alg;
+                Pointer.update(eqn_ptr, eqn);
+              end if;
+
+              if UnorderedSet.isEmpty(solved_inputs) then
+                // EXPLICIT: no solved inputs
                 (eqn_slice, funcTree, solve_status, implicit_index) := solveMultiStrongComponent(comp.eqn, comp.vars, funcTree, kind, implicit_index, slicing_map, Iterator.EMPTY(), varData, eqData);
                 solved_comp := StrongComponent.MULTI_COMPONENT(comp.vars, eqn_slice, solve_status);
               else
