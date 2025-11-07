@@ -798,6 +798,8 @@ algorithm
     if BackendVariable.isInput(var) and not Expression.isConstValue(BackendVariable.varStartValue(var)) and not Types.isArray(BackendVariable.varType(var)) then
       bindExp := BackendVariable.varStartValue(var);
       (v, _) := BackendVariable.getVarSingle(Expression.expCref(bindExp), dae.shared.globalKnownVars);
+                              print("case 0 raelly not this?-time var: " + BackendDump.varString(var) + "\n");
+
       var := BackendVariable.setVarStartValueOption(var, v.bindExp);
     end if;
     globalKnownVarList := var :: globalKnownVarList;
@@ -2207,6 +2209,8 @@ algorithm
       preCR = ComponentReference.crefPrefixPre(cr);  // cr => $PRE.cr
       preVar = BackendDAE.VAR(preCR, BackendDAE.DISCRETE(), DAE.BIDIR(), DAE.NON_PARALLEL(), ty, NONE(), NONE(), arryDim, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false, false, false);
       preVar = BackendVariable.setVarFixed(preVar, false);
+            print("case 1 discrete-time var: " + BackendDump.varString(var) + "\n");
+
       preVar = BackendVariable.setVarStartValueOption(preVar, SOME(startValue));
 
       // pre(v) = v.start
@@ -2223,7 +2227,8 @@ algorithm
       preCR = ComponentReference.crefPrefixPre(cr);  // cr => $PRE.cr
       preVar = BackendDAE.VAR(preCR, BackendDAE.VARIABLE(), DAE.BIDIR(), DAE.NON_PARALLEL(), ty, NONE(), NONE(), arryDim, DAE.emptyElementSource, NONE(), NONE(), NONE(), NONE(), DAE.NON_CONNECTOR(), DAE.NOT_INNER_OUTER(), false, false, false);
       preVar = BackendVariable.setVarFixed(preVar, false);
-      preVar = BackendVariable.setVarStartValueOption(preVar, SOME(DAE.CREF(cr, ty)));
+                  print("case 2 cont-time var: " + BackendDump.varString(var) + "\n");
+preVar = BackendVariable.setVarStartValueOption(preVar, SOME(DAE.CREF(cr, ty)));
 
       // pre(v) = v
       eqn = BackendDAE.EQUATION(DAE.CREF(preCR, ty), DAE.CREF(cr, ty), DAE.emptyElementSource, BackendDAE.EQ_ATTR_DEFAULT_INITIAL);
@@ -2410,6 +2415,8 @@ algorithm
       startVar = BackendVariable.setVarDirection(startVar, DAE.BIDIR());
       startVar = BackendVariable.setVarFixed(startVar, false);
       startVar = BackendVariable.setVarKind(startVar, BackendDAE.VARIABLE());
+                  print("case 3 state-time var: " + BackendDump.varString(var) + "\n");
+
       startVar = BackendVariable.setVarStartValueOption(startVar, NONE());
 
       startExp = BackendVariable.varStartValue(var);
@@ -2453,6 +2460,8 @@ algorithm
       preVar = BackendVariable.setVarDirection(preVar, DAE.BIDIR());
       preVar = BackendVariable.setBindExp(preVar, NONE());
       preVar = BackendVariable.setVarFixed(preVar, true);
+                  print("case 4 state -time var: " + BackendDump.varString(var) + "\n");
+
       preVar = BackendVariable.setVarStartValueOption(preVar, SOME(DAE.CREF(cr, ty)));
 
       eqn = BackendDAE.EQUATION(DAE.CREF(cr, ty), DAE.CREF(preCR, ty), DAE.emptyElementSource, BackendDAE.EQ_ATTR_DEFAULT_INITIAL);
@@ -2476,6 +2485,8 @@ algorithm
       preVar = BackendVariable.setVarDirection(preVar, DAE.BIDIR());
       preVar = BackendVariable.setBindExp(preVar, NONE());
       preVar = BackendVariable.setVarFixed(preVar, false);
+                  print("case 5 discrete-time var: " + BackendDump.varString(var) + "\n");
+
       preVar = BackendVariable.setVarStartValueOption(preVar, SOME(startValue_));
 
       eqn = BackendDAE.EQUATION(DAE.CREF(preCR, ty), startValue_, DAE.emptyElementSource, BackendDAE.EQ_ATTR_DEFAULT_INITIAL);
@@ -2497,6 +2508,8 @@ algorithm
       preVar = BackendVariable.setVarDirection(preVar, DAE.BIDIR());
       preVar = BackendVariable.setBindExp(preVar, NONE());
       preVar = BackendVariable.setVarFixed(preVar, false);
+                  print("case 6 discrete-time var: " + BackendDump.varString(var) + "\n");
+
       preVar = BackendVariable.setVarStartValueOption(preVar, startValue);
 
       vars = BackendVariable.addVar(var, vars);
@@ -2552,6 +2565,8 @@ algorithm
       var = BackendVariable.setVarKind(var, BackendDAE.VARIABLE());
       var = BackendVariable.setBindExp(var, NONE());
       NONE() = BackendVariable.varStartValueOption(var);
+                  print("case 7 param-time var: " + BackendDump.varString(var) + "\n");
+
       var = BackendVariable.setVarStartValue(var, bindExp);
 
       s = ComponentReference.printComponentRefStr(cr);
@@ -2619,6 +2634,8 @@ algorithm
       startVar = BackendVariable.setVarDirection(startVar, DAE.BIDIR());
       startVar = BackendVariable.setVarFixed(startVar, false);
       startVar = BackendVariable.setVarKind(startVar, BackendDAE.VARIABLE());
+                        print("case 8 dummy-time var: " + BackendDump.varString(var) + "\n");
+
       startVar = BackendVariable.setVarStartValueOption(startVar, NONE());
 
       startExp = BackendVariable.varStartValue(var);
@@ -2638,6 +2655,8 @@ algorithm
       preVar = BackendVariable.setVarDirection(preVar, DAE.BIDIR());
       preVar = BackendVariable.setBindExp(preVar, NONE());
       preVar = BackendVariable.setVarFixed(preVar, true);
+                        print("case 9 dummy2- time var: " + BackendDump.varString(var) + "\n");
+
       preVar = BackendVariable.setVarStartValueOption(preVar, SOME(DAE.CREF(cr, ty)));
 
       // if startExp is constant, generate "cref = $START.cref" otherwise "cref = startExp"
@@ -2674,6 +2693,8 @@ algorithm
       startVar = BackendVariable.setVarDirection(startVar, DAE.BIDIR());
       startVar = BackendVariable.setVarFixed(startVar, false);
       startVar = BackendVariable.setVarKind(startVar, BackendDAE.VARIABLE());
+                        print("case 10 dummy-st-time var: " + BackendDump.varString(var) + "\n");
+
       startVar = BackendVariable.setVarStartValueOption(startVar, NONE());
 
       startExp = BackendVariable.varStartValue(var);
@@ -2691,6 +2712,8 @@ algorithm
       preVar = BackendVariable.setVarDirection(preVar, DAE.BIDIR());
       preVar = BackendVariable.setBindExp(preVar, NONE());
       preVar = BackendVariable.setVarFixed(preVar, true);
+                              print("case 11 dummy-st-time var: " + BackendDump.varString(var) + "\n");
+
       preVar = BackendVariable.setVarStartValueOption(preVar, SOME(DAE.CREF(cr, ty)));
 
       // if startExp is constant, generate "cref = $START.cref" otherwise "cref = startExp"
@@ -2761,6 +2784,8 @@ algorithm
           previousVar = BackendVariable.setVarDirection(previousVar, DAE.BIDIR());
           previousVar = BackendVariable.setBindExp(previousVar, NONE());
           previousVar = BackendVariable.setVarFixed(previousVar, true);
+                                  print("case 12 clock-time var: " + BackendDump.varString(var) + "\n");
+
           previousVar = BackendVariable.setVarStartValueOption(previousVar, SOME(DAE.CREF(cr, ty)));
 
           // HACK hide previous(v) in results because it's not calculated right
