@@ -5128,9 +5128,16 @@ end getTempDeclMatchOutputName;
   case e as BOX(__)             then daeExpBox(e, context, &preExp, &varDecls, &auxFunction)
   case e as UNBOX(__)           then daeExpUnbox(e, context, &preExp, &varDecls, &auxFunction)
   case e as SHARED_LITERAL(__)  then daeExpSharedLiteral(e)
-  case e as CLKCONST(__)        then '#error "<%ExpressionDumpTpl.dumpExp(e,"\"")%>"'
+  case e as CLKCONST(__)        then daeExpClkConst(e, context, &preExp, &varDecls, &auxFunction)
   else error(sourceInfo(), 'Unknown expression: <%ExpressionDumpTpl.dumpExp(exp,"\"")%>')
 end daeExp;
+
+template daeExpClkConst(Exp exp, Context context, Text &preExp, Text &varDecls, Text &auxFunction)
+::=
+  match exp
+  case e as CLKCONST(clk = REAL_CLOCK(interval = interval)) then daeExp(interval, context, &preExp, &varDecls, &auxFunction)
+  else error(sourceInfo(), 'Not a valid clock constant: <%ExpressionDumpTpl.dumpExp(exp,"\"")%>')
+end daeExpClkConst;
 
 /* public */ template daeExpSimpleLiteral(Exp exp)
  "Generates code for a simple literal expression."

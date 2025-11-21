@@ -2099,7 +2099,7 @@ package DAE
       Boolean bool;
     end BCONST;
     record CLKCONST
-      Absyn.ClockKind clk;
+      ClockKind clk;
     end CLKCONST;
     record ENUM_LITERAL
       Absyn.Path name;
