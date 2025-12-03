@@ -581,7 +581,6 @@ public
         (elem1, diffArguments) := differentiateExpression(exp.recordExp, diffArguments);
       then (Expression.RECORD_ELEMENT(elem1, exp.index, exp.fieldName, exp.ty), diffArguments);
 
-
       // differentiate a passed function pointer
       case Expression.PARTIAL_FUNCTION_APPLICATION() algorithm
         d_fn := BVariable.makeFDerVar(exp.fn);
@@ -1620,32 +1619,32 @@ public
     Binding binding;
     Function func, d_func;
   algorithm
-    cref := ComponentRef.fromNode(node, InstNode.getType(node));
-      diff_cref := UnorderedMap.getSafe(cref, diff_map, sourceInfo());
-      diff_cref := match diff_cref
-        case ComponentRef.CREF(node = d_node as InstNode.COMPONENT_NODE()) algorithm
-          // differentiate bindings
-          comp := Pointer.access(d_node.component);
-          comp := match comp
-            case comp as Component.COMPONENT() algorithm
-              (binding, diffArgs) := differentiateBinding(comp.binding, diffArgs);
-              comp.binding := binding;
-            then comp;
-            else comp;
-          end match;
-          d_node.component := Pointer.create(comp);
-          diff_cref.node := d_node;
-        then diff_cref;
-        else diff_cref;
-      end match;
+    cref      := ComponentRef.fromNode(node, InstNode.getType(node));
+    diff_cref := UnorderedMap.getSafe(cref, diff_map, sourceInfo());
+    diff_cref := match diff_cref
+      case ComponentRef.CREF(node = d_node as InstNode.COMPONENT_NODE()) algorithm
+        // differentiate bindings
+        comp := Pointer.access(d_node.component);
+        comp := match comp
+          case comp as Component.COMPONENT() algorithm
+            (binding, diffArgs) := differentiateBinding(comp.binding, diffArgs);
+            comp.binding := binding;
+          then comp;
+          else comp;
+        end match;
+        d_node.component  := Pointer.create(comp);
+        diff_cref.node    := d_node;
+      then diff_cref;
+      else diff_cref;
+    end match;
 
-      // if the node is a function, its a function pointer argument
-      if InstNode.isFunction(node) then
-        func := listHead(Function.getCachedFuncs(node));
-        (d_func, diffArgs) := differentiateFunction(func, UnorderedMap.new<Boolean>(stringHashDjb2, stringEqual), diffArgs);
-      end if;
+    // if the node is a function, its a function pointer argument
+    if InstNode.isFunction(node) then
+      func := listHead(Function.getCachedFuncs(node));
+      (d_func, diffArgs) := differentiateFunction(func, UnorderedMap.new<Boolean>(stringHashDjb2, stringEqual), diffArgs);
+    end if;
 
-      d_node := ComponentRef.node(diff_cref);
+    d_node := ComponentRef.node(diff_cref);
   end differentiateFunctionInterfaceNode;
 
   function createInterfaceDerivatives
@@ -1692,9 +1691,9 @@ public
     for slot in slots loop
       if not  UnorderedMap.contains(InstNode.name(slot.node), interface_map) then
         (d_node, diffArgs) := differentiateFunctionInterfaceNode(slot.node, diff_map, diffArgs);
-        slot.node := d_node;
-        slot.index := local_index;
-        new_slots := slot :: new_slots;
+        slot.node   := d_node;
+        slot.index  := local_index;
+        new_slots   := slot :: new_slots;
         local_index := local_index + 1;
       end if;
     end for;

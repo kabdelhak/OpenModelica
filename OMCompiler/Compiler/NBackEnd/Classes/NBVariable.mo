@@ -1316,14 +1316,14 @@ public
 
       // inside a function body
       case qual as InstNode.COMPONENT_NODE() algorithm
-        qual.name := BackendUtil.makeFDerString(ComponentRef.toString(cref));
-        cref := ComponentRef.fromNode(qual, ComponentRef.nodeType(cref));
+        qual.name := BackendUtil.makeFDerString("");
+        cref := ComponentRef.suffixCref(qual, InstNode.getType(qual), {}, cref);
       then cref;
 
       // partial function application (passing function pointers)
       case qual as InstNode.CLASS_NODE() algorithm
-        qual.name := BackendUtil.makeFDerString(ComponentRef.toString(cref));
-        cref := ComponentRef.fromNode(qual, ComponentRef.nodeType(cref));
+        qual.name := BackendUtil.makeFDerString("");
+        cref := ComponentRef.suffixCref(qual, InstNode.getType(qual), {}, cref);
       then cref;
 
       else algorithm
