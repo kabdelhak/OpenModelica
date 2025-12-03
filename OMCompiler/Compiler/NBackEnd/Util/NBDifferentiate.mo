@@ -581,10 +581,9 @@ public
         (elem1, diffArguments) := differentiateExpression(exp.recordExp, diffArguments);
       then (Expression.RECORD_ELEMENT(elem1, exp.index, exp.fieldName, exp.ty), diffArguments);
 
-
       // differentiate a passed function pointer
       case Expression.PARTIAL_FUNCTION_APPLICATION() algorithm
-        d_fn := BVariable.makeFDerVar(exp.fn);
+        d_fn := BVariable.makeFDerVar(exp.fn, false);
         for element in exp.args loop
           (element, diffArguments) := differentiateExpression(element, diffArguments);
           new_elements := element :: new_elements;
@@ -1487,9 +1486,9 @@ public
             funcDiffArgs          := DifferentiationArguments.default();
             funcDiffArgs.diffType := DifferentiationType.FUNCTION;
             funcDiffArgs.funcTree := diffArguments.funcTree;
-            createInterfaceDerivatives(der_func.inputs, interface_map, diff_map);
-            createInterfaceDerivatives(der_func.locals, interface_map, diff_map);
-            createInterfaceDerivatives(der_func.outputs, interface_map, diff_map);
+            createInterfaceDerivatives(der_func.inputs, interface_map, diff_map, false);
+            createInterfaceDerivatives(der_func.locals, interface_map, diff_map, true);
+            createInterfaceDerivatives(der_func.outputs, interface_map, diff_map, true);
             funcDiffArgs.diff_map := SOME(diff_map);
 
             // differentiate interface arguments
@@ -1620,61 +1619,63 @@ public
     Binding binding;
     Function func, d_func;
   algorithm
-    cref := ComponentRef.fromNode(node, InstNode.getType(node));
-      diff_cref := UnorderedMap.getSafe(cref, diff_map, sourceInfo());
-      diff_cref := match diff_cref
-        case ComponentRef.CREF(node = d_node as InstNode.COMPONENT_NODE()) algorithm
-          // differentiate bindings
-          comp := Pointer.access(d_node.component);
-          comp := match comp
-            case comp as Component.COMPONENT() algorithm
-              (binding, diffArgs) := differentiateBinding(comp.binding, diffArgs);
-              comp.binding := binding;
-            then comp;
-            else comp;
-          end match;
-          d_node.component := Pointer.create(comp);
-          diff_cref.node := d_node;
-        then diff_cref;
-        else diff_cref;
-      end match;
+    cref      := ComponentRef.fromNode(node, InstNode.getType(node));
+    diff_cref := UnorderedMap.getSafe(cref, diff_map, sourceInfo());
+    diff_cref := match diff_cref
+      case ComponentRef.CREF(node = d_node as InstNode.COMPONENT_NODE()) algorithm
+        // differentiate bindings
+        comp := Pointer.access(d_node.component);
+        comp := match comp
+          case comp as Component.COMPONENT() algorithm
+            (binding, diffArgs) := differentiateBinding(comp.binding, diffArgs);
+            comp.binding := binding;
+          then comp;
+          else comp;
+        end match;
+        d_node.component  := Pointer.create(comp);
+        diff_cref.node    := d_node;
+      then diff_cref;
+      else diff_cref;
+    end match;
 
-      // if the node is a function, its a function pointer argument
-      if InstNode.isFunction(node) then
-        func := listHead(Function.getCachedFuncs(node));
-        (d_func, diffArgs) := differentiateFunction(func, UnorderedMap.new<Boolean>(stringHashDjb2, stringEqual), diffArgs);
-      end if;
+    // if the node is a function, its a function pointer argument
+    if InstNode.isFunction(node) then
+      func := listHead(Function.getCachedFuncs(node));
+      (d_func, diffArgs) := differentiateFunction(func, UnorderedMap.new<Boolean>(stringHashDjb2, stringEqual), diffArgs);
+    end if;
 
-      d_node := ComponentRef.node(diff_cref);
+    d_node := ComponentRef.node(diff_cref);
   end differentiateFunctionInterfaceNode;
 
   function createInterfaceDerivatives
     input list<InstNode> interface_nodes;
     input UnorderedMap<String, Boolean> interface_map;
     input UnorderedMap<ComponentRef, ComponentRef> diff_map;
+    input Boolean isLocal;
   protected
     ComponentRef cref;
 
     function addCref
       input ComponentRef cref;
       input UnorderedMap<ComponentRef, ComponentRef> diff_map;
+      input Boolean isLocal;
     protected
       ComponentRef diff_cref;
       list<ComponentRef> children;
     algorithm
-      diff_cref := BVariable.makeFDerVar(cref);
+      diff_cref := BVariable.makeFDerVar(cref, isLocal);
       UnorderedMap.add(cref, diff_cref, diff_map);
 
       children := ComponentRef.getRecordChildren(cref);
       for child in children loop
-        addCref(child, diff_map);
+        addCref(child, diff_map, isLocal);
       end for;
     end addCref;
   algorithm
     for node in interface_nodes loop
       if not UnorderedMap.contains(InstNode.name(node), interface_map) then
         cref := ComponentRef.fromNode(node, InstNode.getType(node));
-        addCref(cref, diff_map);
+        addCref(cref, diff_map, isLocal);
       end if;
     end for;
   end createInterfaceDerivatives;
@@ -1692,9 +1693,9 @@ public
     for slot in slots loop
       if not  UnorderedMap.contains(InstNode.name(slot.node), interface_map) then
         (d_node, diffArgs) := differentiateFunctionInterfaceNode(slot.node, diff_map, diffArgs);
-        slot.node := d_node;
-        slot.index := local_index;
-        new_slots := slot :: new_slots;
+        slot.node   := d_node;
+        slot.index  := local_index;
+        new_slots   := slot :: new_slots;
         local_index := local_index + 1;
       end if;
     end for;
@@ -1742,9 +1743,9 @@ public
                   local_outputs     := list(InstNode.protect(node) for node in local_outputs);
 
                   // differentiate interface arguments
-                  createInterfaceDerivatives({var}, interface_map, diff_map);
-                  createInterfaceDerivatives(der_func.locals, interface_map, diff_map);
-                  createInterfaceDerivatives(der_func.outputs, interface_map, diff_map);
+                  createInterfaceDerivatives({var}, interface_map, diff_map, false);
+                  createInterfaceDerivatives(der_func.locals, interface_map, diff_map, true);
+                  createInterfaceDerivatives(der_func.outputs, interface_map, diff_map, true);
                   diffArgs.diff_map   := SOME(diff_map);
 
                   (locals, diffArgs)  := differentiateFunctionInterfaceNodes(der_func.locals, interface_map, diff_map, diffArgs, true);

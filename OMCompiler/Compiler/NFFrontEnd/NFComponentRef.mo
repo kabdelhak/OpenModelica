@@ -98,6 +98,24 @@ public
     output ComponentRef cref = CREF(node, subs, ty, Origin.SCOPE, restCref);
   end prefixScope;
 
+  function suffixCref
+    input InstNode node;
+    input Type ty;
+    input list<Subscript> subs;
+    input output ComponentRef headCref;
+  algorithm
+    headCref := match headCref
+      // replace empty restCref by new suffix
+      case EMPTY() then CREF(node, subs, ty, Origin.CREF, EMPTY());
+      // go deeper
+      case CREF() algorithm
+        headCref.restCref := suffixCref(node, ty, subs, headCref.restCref);
+      then headCref;
+      // just return for wild
+      else headCref;
+    end match;
+  end suffixCref;
+
   function fromAbsyn
     input InstNode node;
     input list<Absyn.Subscript> subs;
@@ -341,6 +359,21 @@ public
       else ();
     end match;
   end setNodeType;
+
+  function setNode
+    input InstNode node;
+    input output ComponentRef cref;
+  algorithm
+    () := match cref
+      case CREF()
+        algorithm
+          cref.node := node;
+        then
+          ();
+
+      else ();
+    end match;
+  end setNode;
 
   function updateNodeType
     input output ComponentRef cref;
