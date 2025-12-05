@@ -277,6 +277,7 @@ public
     input VariablePointers seedCandidates                 "differentiate by these";
     input VariablePointers partialCandidates              "solve the equations for these";
     input EquationPointers equations                      "Equations array";
+    input VariablePointers unknowns                       "Variable array of all unknowns";
     input VariablePointers knowns                         "Variable array of knowns";
     input Option<array<StrongComponent>> strongComponents "Strong Components";
     output Option<Jacobian> jacobian                      "Resulting jacobian";

@@ -267,6 +267,16 @@ public
     end match;
   end isRecordChild;
 
+  function isLowered
+    input ComponentRef cref;
+    output Boolean b;
+  algorithm
+    b := match cref
+      case CREF(node = InstNode.VAR_NODE()) then true;
+      else false;
+    end match;
+  end isLowered;
+
   function node
     input ComponentRef cref;
     output InstNode node;

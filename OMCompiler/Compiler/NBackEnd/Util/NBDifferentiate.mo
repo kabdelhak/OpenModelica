@@ -172,6 +172,7 @@ public
     input String context;
     input String name;
   algorithm
+    try
     comp := match comp
       local
         Pointer<Variable> new_var;
@@ -239,6 +240,10 @@ public
         Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " not implemented for unknown strong component:\n" + StrongComponent.toString(comp)});
       then fail();
     end match;
+    else
+      print("failed for: " + StrongComponent.toString(comp) + "\n");
+      fail();
+    end try;
   end differentiateStrongComponent;
 
   function differentiateTearing

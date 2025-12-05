@@ -165,6 +165,7 @@ public
     input VariablePointers seedCandidates;
     input VariablePointers partialCandidates;
     input EquationPointers equations;
+    input VariablePointers unknowns;
     input array<StrongComponent> comps;
     output Option<Jacobian> jacobian;
     input output FunctionTree funcTree;
@@ -181,6 +182,7 @@ public
         seedCandidates    = seedCandidates,
         partialCandidates = partialCandidates,
         equations         = equations,
+        unknowns          = unknowns,
         knowns            = VariablePointers.empty(0),      // remove them? are they necessary?
         strongComponents  = SOME(comps),
         funcTree          = funcTree,
@@ -712,6 +714,9 @@ protected
     Partition.Kind kind = Partition.Partition.getKind(part);
     Boolean updated;
   algorithm
+    unknowns  := if Partition.Partition.getKind(part) == NBPartition.Kind.DAE then Util.getOption(part.daeUnknowns) else part.unknowns;
+    jacType   := if Partition.Partition.getKind(part) == NBPartition.Kind.DAE then JacobianType.DAE else JacobianType.ODE;
+
     // create algebraic loop jacobians
     part.strongComponents := match part.strongComponents
       local
@@ -719,7 +724,7 @@ protected
         StrongComponent tmp;
       case SOME(comps) algorithm
         for i in 1:arrayLength(comps) loop
-          (tmp, funcTree, updated) := compJacobian(comps[i], funcTree, kind);
+          (tmp, funcTree, updated) := compJacobian(comps[i], unknowns, funcTree, kind);
           if updated then arrayUpdate(comps, i, tmp); end if;
         end for;
       then SOME(comps);
@@ -729,14 +734,12 @@ protected
     // create the simulation jacobian
     if Partition.Partition.isODEorDAE(part) then
       partialCandidates := part.unknowns;
-      unknowns  := if Partition.Partition.getKind(part) == NBPartition.Kind.DAE then Util.getOption(part.daeUnknowns) else part.unknowns;
-      jacType   := if Partition.Partition.getKind(part) == NBPartition.Kind.DAE then JacobianType.DAE else JacobianType.ODE;
 
       derivative_vars := list(var for var guard(BVariable.isStateDerivative(var)) in VariablePointers.toList(unknowns));
       state_vars := list(Util.getOption(BVariable.getVarState(var)) for var in derivative_vars);
       seedCandidates := VariablePointers.fromList(state_vars, partialCandidates.scalarized);
 
-      (jacobian, funcTree) := func(name, jacType, seedCandidates, partialCandidates, part.equations, knowns, part.strongComponents, funcTree, kind ==  NBPartition.Kind.INI);
+      (jacobian, funcTree) := func(name, jacType, seedCandidates, partialCandidates, part.equations, unknowns, knowns, part.strongComponents, funcTree, kind ==  NBPartition.Kind.INI);
       part.association := Partition.Association.CONTINUOUS(kind, jacobian);
       if Flags.isSet(Flags.JAC_DUMP) then
         print(Partition.Partition.toString(part, 2));
@@ -746,6 +749,7 @@ protected
 
   function compJacobian
     input output StrongComponent comp;
+    input VariablePointers unknowns;
     input output FunctionTree funcTree;
     input Partition.Kind kind;
     output Boolean updated;
@@ -771,6 +775,7 @@ protected
           seedCandidates    = VariablePointers.fromList(seed_candidates),
           partialCandidates = VariablePointers.fromList(listAppend(residual_vars, inner_vars)),
           equations         = EquationPointers.fromList(list(Slice.getT(eqn) for eqn in strict.residual_eqns)),
+          unknowns          = unknowns,
           comps             = Array.appendList(strict.innerEquations, residual_comps),
           funcTree          = funcTree,
           name              = Partition.Partition.kindToString(kind) + (if comp.linear then "_LS_JAC_" else "_NLS_JAC_") + intString(comp.idx),
@@ -803,26 +808,31 @@ protected
     BVariable.checkVar func = getTmpFilterFunction(jacType);
   algorithm
     if Util.isSome(strongComponents) then
-      // filter all discrete strong components and differentiate the others
-      // todo: mixed algebraic loops should be here without the discrete subsets
-      comps := list(comp for comp guard(not StrongComponent.isDiscrete(comp)) in Util.getOption(strongComponents));
+      print("BEFORE\n");
+      // filter all discrete strong component sections and differentiate the others
+      comps := listAppend(StrongComponent.getContinuousPart(comp, unknowns) for comp in Util.getOption(strongComponents));
+      print("AFTER\n");
     else
       Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because no strong components were given!"});
     end if;
 
     // create seed vars
     VariablePointers.mapPtr(seedCandidates, function makeVarTraverse(name = name, vars_ptr = seed_vars_ptr, map = diff_map, makeVar = BVariable.makeSeedVar, init = init));
+      print("check 1\n");
 
     // create pDer vars (also filters out discrete vars)
     (res_vars, tmp_vars) := List.splitOnTrue(VariablePointers.toList(partialCandidates), func);
     (tmp_vars, _) := List.splitOnTrue(tmp_vars, function BVariable.isContinuous(init = init));
+      print("check 2\n");
 
     for v in res_vars loop makeVarTraverse(v, name, pDer_vars_ptr, diff_map, function BVariable.makePDerVar(isTmp = false), init = init); end for;
     res_vars := Pointer.access(pDer_vars_ptr);
+      print("check 3\n");
 
     pDer_vars_ptr := Pointer.create({});
     for v in tmp_vars loop makeVarTraverse(v, name, pDer_vars_ptr, diff_map, function BVariable.makePDerVar(isTmp = true), init = init); end for;
     tmp_vars := Pointer.access(pDer_vars_ptr);
+      print("check 4\n");
 
     // Build differentiation argument structure
     diffArguments := Differentiate.DIFFERENTIATION_ARGUMENTS(
@@ -837,6 +847,7 @@ protected
     // differentiate all strong components
     (diffed_comps, diffArguments) := Differentiate.differentiateStrongComponentList(comps, diffArguments, idx, name, getInstanceName());
     funcTree := diffArguments.funcTree;
+      print("check 5\n");
 
     // collect var data (most of this can be removed)
     unknown_vars  := listAppend(res_vars, tmp_vars);

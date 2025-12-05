@@ -1407,7 +1407,7 @@ protected
     list<list<Subscript>> subs;
   algorithm
     try
-      if not ComponentRef.isWild(cref) then
+      if not (ComponentRef.isWild(cref) or ComponentRef.isLowered(cref)) then
         var  := VariablePointers.getVarSafe(variables, ComponentRef.stripSubscriptsAll(cref), if complete then SOME(sourceInfo()) else NONE());
         cref := lowerComponentReferenceInstNode(cref, var);
         cref := ComponentRef.mapSubscripts(cref, function Subscript.mapExp(func = function lowerComponentReferenceExp(variables = variables, complete = true)));

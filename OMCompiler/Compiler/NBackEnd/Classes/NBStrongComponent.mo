@@ -67,7 +67,7 @@ protected
   import BPartition = NBPartition;
   import NBPartition.{Partition};
   import Tearing = NBTearing;
-  import NBVariable.{VariablePointer, VariablePointers};
+  import NBVariable.{VarSlice, VariablePointer, VariablePointers};
 
   // Util imports
   import Pointer;
@@ -970,7 +970,7 @@ public
   end getSolveStatus;
 
   function isDiscrete
-    "checks if all equations are discrete"
+    "checks if any equation is discrete"
     input StrongComponent comp;
     output Boolean b;
   algorithm
@@ -979,7 +979,7 @@ public
       case MULTI_COMPONENT()    then Equation.isDiscrete(Slice.getT(comp.eqn));
       case SLICED_COMPONENT()   then Equation.isDiscrete(Slice.getT(comp.eqn));
       case RESIZABLE_COMPONENT()then Equation.isDiscrete(Slice.getT(comp.eqn));
-      case ENTWINED_COMPONENT() then List.all(comp.entwined_slices, isDiscrete);
+      case ENTWINED_COMPONENT() then List.any(comp.entwined_slices, isDiscrete);
       case GENERIC_COMPONENT()  then Equation.isDiscrete(Slice.getT(comp.eqn));
       case ALGEBRAIC_LOOP()     then comp.mixed;
       case ALIAS()              then isDiscrete(comp.original);
@@ -1141,6 +1141,60 @@ public
     end if;
   end createSliceOrSingle;
 
+  function getContinuousPart
+    "checks if any equation is discrete"
+    input StrongComponent comp;
+    input VariablePointers variables;
+    output list<StrongComponent> comps;
+  algorithm
+    comps := match comp
+      local
+        Equation eqn;
+        Tearing strict;
+
+      // these are either returned fully or not at all
+      case SINGLE_COMPONENT()   then if Equation.isDiscrete(comp.eqn) then {} else {comp};
+      case SLICED_COMPONENT()   then if Equation.isDiscrete(Slice.getT(comp.eqn)) then {} else {comp};
+      case RESIZABLE_COMPONENT()then if Equation.isDiscrete(Slice.getT(comp.eqn)) then {} else {comp};
+      case GENERIC_COMPONENT()  then if Equation.isDiscrete(Slice.getT(comp.eqn)) then {} else {comp};
+
+      // remove all discrete entwined slices
+      case ENTWINED_COMPONENT() algorithm
+        comp.entwined_slices := listAppend(getContinuousPart(c, variables) for c in comp.entwined_slices);
+      then if listEmpty(comp.entwined_slices) then {} else {comp};
+
+      // remove all discrete inner equations
+      case ALGEBRAIC_LOOP(strict = strict) algorithm
+        strict.innerEquations := listArray(listAppend(getContinuousPart(c, variables) for c in arrayList(strict.innerEquations)));
+        comp.strict := strict;
+      then {comp};
+
+      // check if original has discrete sections and act accordingly
+      case ALIAS() then if isDiscrete(comp.original) then getContinuousPart(comp.original, variables) else {comp};
+
+      // possibly inline mixed records
+      case MULTI_COMPONENT() algorithm
+        if List.all(comp.vars, function Slice.check(func = BVariable.isDiscrete)) then
+          comps := {};
+        else
+          eqn   := Pointer.access(Slice.getT(comp.eqn));
+          comps := match eqn
+            case Equation.RECORD_EQUATION() then getContinousPartMulti(comp, eqn, comp.vars, variables);
+            case Equation.IF_EQUATION()     then getContinousPartMulti(comp, eqn, comp.vars, variables);
+            case Equation.FOR_EQUATION()    then getContinousPartMulti(comp, eqn, comp.vars, variables);
+            else algorithm
+              Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because of invalid mixed multi-component: " + toString(comp)});
+            then fail();
+          end match;
+        end if;
+      then comps;
+
+      else algorithm
+        Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because of wrong component: " + toString(comp)});
+      then fail();
+    end match;
+  end getContinuousPart;
+
   // ############################################################
   //                Protected Functions and Types
   // ############################################################
@@ -1238,6 +1292,51 @@ protected
       dependencies := UnorderedSet.fold(dependencies, function addStateDependencies(map = map), UnorderedSet.new(ComponentRef.hash, ComponentRef.isEqual));
     end if;
   end prepareDependencies;
+
+  function getContinousPartMulti
+    input StrongComponent comp;
+    input Equation eqn;
+    input list<Slice<Pointer<Variable>>> vars;
+    input VariablePointers variables;
+    output list<StrongComponent> comps = {};
+  protected
+    Pointer<list<Pointer<Equation>>> new_eqns = Pointer.create({});
+    UnorderedSet<VariablePointer> set = UnorderedSet.new(BVariable.hash, BVariable.equalName);
+    Pointer<Integer> index = Pointer.create(0);
+    Equation new_eqn;
+    UnorderedMap<ComponentRef, VarSlice> slice_map;
+    ComponentRef cref;
+    VarSlice var_slice;
+  algorithm
+    new_eqn := Inline.inlineRecordTupleArrayEquation(eqn, Iterator.EMPTY(), variables, new_eqns, set, index, true);
+    // assume solved
+    if Equation.isDummy(new_eqn) then
+      // prepare the slice map
+      slice_map := UnorderedMap.new<VarSlice>(ComponentRef.hash, ComponentRef.isEqual);
+      for v in vars loop
+        UnorderedMap.add(ComponentRef.stripSubscriptsAll(BVariable.getVarName(Slice.getT(v))), v, slice_map);
+      end for;
+
+      // create a new component for each inlined equation
+      for e in Pointer.access(new_eqns) loop
+        if not Equation.isDiscrete(e) then
+          try
+            SOME(Expression.CREF(cref = cref)) := Equation.getLHS(Pointer.access(e));
+          else
+            Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because of unsolved inlined equation in: " + toString(comp)});
+            fail();
+          end try;
+
+          var_slice := UnorderedMap.getSafe(ComponentRef.stripSubscriptsAll(cref), slice_map, sourceInfo());
+          if not BVariable.isDiscrete(Slice.getT(var_slice)) then
+            comps := createSliceOrSingle(cref, var_slice, Slice.SLICE(e, {})) :: comps;
+          end if;
+        end if;
+      end for;
+    else
+      comps := {comp};
+    end if;
+  end getContinousPartMulti;
 
   annotation(__OpenModelica_Interface="backend");
 end NBStrongComponent;
