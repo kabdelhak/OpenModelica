@@ -42,4 +42,15 @@ package MultiDimensionalArrays
   model Test4
     Test3[4] t;
   end Test4;
+
+  model E
+    parameter Real T(fixed=false);
+    parameter Real[2,3] A = {{i * sin(T) for j in 1:3} for i in 1:2};
+  initial equation
+    T = time;
+  end E;
+
+  model Test5
+    E[4] e;
+  end Test5;
 end MultiDimensionalArrays;

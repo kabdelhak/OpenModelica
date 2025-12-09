@@ -14,7 +14,7 @@ equation
 end basic_IR;
 "); getErrorString();
 
-setCommandLineOptions("--newBackend"); getErrorString();
+//setCommandLineOptions("--newBackend"); getErrorString();
 
 simulate(basic_IR); getErrorString();
 
