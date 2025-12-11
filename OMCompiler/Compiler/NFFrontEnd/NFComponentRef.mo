@@ -1241,6 +1241,20 @@ public
 
     b := match (cref1, cref2)
       case (CREF(), CREF()) algorithm
+        if intString(ComponentRef.hash(cref2)) == "-4507777745440410635" then
+          print("checking " + toString(cref1) + " == " + toString(cref2) + "\n");
+          print("names:" + boolString(InstNode.name(cref1.node) == InstNode.name(cref2.node)) + "\n");
+          print("subscripts:" + boolString(Subscript.isEqualList(cref1.subscripts, cref2.subscripts)) + "\n");
+          if not Subscript.isEqualList(cref1.subscripts, cref2.subscripts) then
+            print("FAILING SUBS 1: " + List.toString(cref1.subscripts, Subscript.toStringTEST) + "\n");
+            print("FAILING SUBS 2: " + List.toString(cref2.subscripts, Subscript.toStringTEST) + "\n");
+          end if;
+          print("rest: " + boolString(isEqualRESTCHECK(cref1.restCref, cref2.restCref)) + "\n"); 
+          print("### final: " + boolString(InstNode.name(cref1.node) == InstNode.name(cref2.node) and
+          Subscript.isEqualList(cref1.subscripts, cref2.subscripts) and
+          isEqual(cref1.restCref, cref2.restCref)) + "\n");
+        end if;
+
         then InstNode.name(cref1.node) == InstNode.name(cref2.node) and
           Subscript.isEqualList(cref1.subscripts, cref2.subscripts) and
           isEqual(cref1.restCref, cref2.restCref);
@@ -1249,6 +1263,35 @@ public
       else false;
     end match;
   end isEqual;
+
+ function isEqualRESTCHECK
+    input ComponentRef cref1;
+    input ComponentRef cref2;
+    output Boolean b;
+  algorithm
+    if referenceEq(cref1, cref2) then
+      b := true;
+      return;
+    end if;
+
+    b := match (cref1, cref2)
+      case (CREF(), CREF()) algorithm
+        print("checking " + toString(cref1) + " == " + toString(cref2) + "\n");
+        print("names:" + boolString(InstNode.name(cref1.node) == InstNode.name(cref2.node)) + "\n");
+        print("subscripts:" + boolString(Subscript.isEqualList(cref1.subscripts, cref2.subscripts)) + "\n");
+          if not Subscript.isEqualList(cref1.subscripts, cref2.subscripts) then
+            print("FAILING SUBS 1: " + List.toString(cref1.subscripts, Subscript.toStringTEST) + "\n");
+            print("FAILING SUBS 2: " + List.toString(cref2.subscripts, Subscript.toStringTEST) + "\n");
+            print("is equal: " + boolString(Subscript.isEqualListTEST(cref1.subscripts, cref2.subscripts)) + "\n");
+          end if;
+        then InstNode.name(cref1.node) == InstNode.name(cref2.node) and
+          Subscript.isEqualList(cref1.subscripts, cref2.subscripts) and
+          isEqualRESTCHECK(cref1.restCref, cref2.restCref);
+      case (EMPTY(), EMPTY()) then true;
+      case (WILD(), WILD()) then true;
+      else false;
+    end match;
+  end isEqualRESTCHECK;
 
   function isEqualStrip
     "strips the subscripts before comparing. Used for non expandend variables"
@@ -1588,6 +1631,10 @@ public
       case WILD() then stringHashDjb2("_");
       else 0;
     end match;
+    
+    if intString(hash) == "-4507777745440410635" then
+      print("hash of " + ComponentRef.toString(cref) + " is " + intString(hash) + "\n");
+    end if;
   end hash;
 
   function hashStrip

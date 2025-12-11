@@ -166,7 +166,8 @@ modelica_integer stringHashDjb2Continue(metamodelica_string_const s, modelica_in
   long res = djb2_hash_continue((const unsigned char*)str, (unsigned long)hash);
   res = labs(res);
   /* fprintf(stderr, "stringHashDjb2 %s-> %ld %ld %ld\n", str, res, mmc_mk_icon(res), mmc_unbox_integer(mmc_mk_icon(res))); */
-  return res;
+  /* shift the value one forward and one backward to force first bit to be 0 as metamodelica has one less bit to work with*/
+  return ((res << 1) >> 1); 
 }
 
 /* adrpo: see the comment above about djb2 hash */

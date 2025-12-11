@@ -784,6 +784,17 @@ public
     str := IOStream.string(io);
   end toJSON;
 
+  function sanity
+    input K key;
+    input UnorderedMap<K, V> map;
+  protected
+    Hash hashfn = map.hashFn;
+    Integer hash_raw;
+  algorithm
+    hash_raw := hashfn(key);
+    print(intString(hash_raw) + " ::: " + boolString(intString(hash_raw) == "-4507777745440410635") + "\n");
+  end sanity;
+
 protected
   function find
     "Returns the array index of the given key (or -1 if the key isn't in the map)
@@ -795,12 +806,17 @@ protected
   protected
     Hash hashfn = map.hashFn;
     KeyEq eqfn = map.eqFn;
+    Integer hash_raw;
     list<Integer> bucket;
   algorithm
     if Vector.size(map.buckets) > 0 then
-      hash := intMod(hashfn(key), Vector.size(map.buckets));
+      hash_raw := hashfn(key);
+      hash := intMod(hash_raw, Vector.size(map.buckets));
 
       bucket := Vector.get(map.buckets, hash + 1);
+      if intString(hashfn(key)) == "-4507777745440410635" then
+        print("found bucket " + List.toString(bucket, intString) + "\n");
+      end if;
       for i in bucket loop
         if eqfn(key, Vector.getNoBounds(map.keys, i)) then
           index := i;

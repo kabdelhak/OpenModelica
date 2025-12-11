@@ -430,7 +430,12 @@ public
           set := UnorderedSet.new(ComponentRef.hash, ComponentRef.isEqual, Util.nextPrime(listLength(seed_vars_array)));
 
           // save all seed_vars and partial_vars to know later on if a cref should be added
-          for cref in seed_vars loop UnorderedMap.add(cref, {}, map); end for;
+          for cref in seed_vars loop 
+          if intString(ComponentRef.hash(cref)) == "-4507777745440410635" then
+            print(ComponentRef.toString(cref) + " - " + intString(ComponentRef.hash(cref)) + " - " + boolString(intString(ComponentRef.hash(cref)) == "-4507777745440410635") + "\n"); 
+          end if;
+          UnorderedMap.add(cref, {}, map);
+          end for;
           for cref in partial_vars loop UnorderedMap.add(cref, {}, map); end for;
           for cref in seed_vars_array loop UnorderedSet.add(cref, set); end for;
           for cref in partial_vars_array loop UnorderedSet.add(cref, set); end for;
@@ -450,7 +455,20 @@ public
                 row_vars := cref :: row_vars;
                 for dep in tmp loop
                   // also add inverse dependency (indep var) --> (res/tmp) :: rest
-                  UnorderedMap.add(dep, cref :: UnorderedMap.getSafe(dep, map, sourceInfo()), map);
+                  try
+                    print("TRYING: " + ComponentRef.toString(dep) + "\n");
+                    UnorderedMap.add(dep, cref :: UnorderedMap.getSafe(dep, map, sourceInfo()), map);
+                  else
+                   
+                    UnorderedMap.sanity(dep, map);
+                    print("row cref: " + ComponentRef.toString(cref) + "\n");
+                    print("failed getting " + ComponentRef.toString(dep)  + " - " + intString(ComponentRef.hash(dep)) + " from\n");
+                    print("weird: " + intString(-4507777745440410635) + "\n");
+                    weirdfail(dep);
+
+                    //print(UnorderedMap.toString(map, ComponentRef.toString, ComponentRef.listToString) + "\n"); 
+                    fail();
+                  end try;
                 end for;
               end if;
             end if;
@@ -489,6 +507,24 @@ public
         print(toString(sparsityPattern) + "\n" + SparsityColoring.toString(sparsityColoring) + "\n");
       end if;
     end create;
+
+    function weirdfail
+      input ComponentRef dep;
+    protected
+      Integer i1 = ComponentRef.hash(dep);
+      Integer i2 = -4507777745440410635;
+    algorithm
+      print("hash: " + intString(ComponentRef.hash(dep)) + "\n");
+      print("i1: " + intString(i1) + "\n");
+      print("i2: " + intString(i2) + "\n");
+      print("literal: " + intString(-4507777745440410635) + "\n");
+      //print("i1: " + intString(i1) + " ==? " + intString(i2) + "\n");
+      //print("i1: " + intString(i1) + " ==? " + intString(4715594302069065651) + " (literal)\n");
+      //print("equal? " + boolString(i1 == i2) + "\n");
+      //print("equalString? " + boolString(intString(i1) == intString(i2)) + "\n");
+      //print("equal literal? " + boolString(i1 == 4715594302069065651) + "\n");
+      //print("equalString literal? " + boolString(intString(i1) == intString(4715594302069065651)) + "\n");
+    end weirdfail;
 
     function createEmpty
       output SparsityPattern sparsityPattern = EMPTY_SPARSITY_PATTERN;

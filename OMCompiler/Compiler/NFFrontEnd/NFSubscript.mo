@@ -342,6 +342,38 @@ public
     end match;
   end isBackendIterator;
 
+
+  function isEqualTEST
+    input Subscript subscript1;
+    input Subscript subscript2;
+    output Boolean isEqual;
+  algorithm
+    isEqual := match (subscript1, subscript2)
+      case (RAW_SUBSCRIPT(), RAW_SUBSCRIPT())
+        then AbsynUtil.subscriptEqual(subscript1.subscript, subscript2.subscript);
+
+      case (UNTYPED(), UNTYPED())
+        then Expression.isEqual(subscript1.exp, subscript2.exp);
+
+      case (INDEX(), INDEX()) algorithm
+        print("CHECKING  EXP 1" + Expression.toStringTEST(subscript1.index) + "\n");
+        print("CHECKING  EXP 2" + Expression.toStringTEST(subscript2.index) + "\n");
+        then Expression.isEqual(subscript1.index, subscript2.index);
+
+      case (SLICE(), SLICE())
+        then Expression.isEqual(subscript1.slice, subscript2.slice);
+
+      case (WHOLE(), WHOLE()) then true;
+
+      case (SPLIT_INDEX(), SPLIT_INDEX())
+        then subscript1.dimIndex == subscript2.dimIndex and
+             InstNode.refEqual(subscript1.node, subscript2.node);
+
+      else false;
+    end match;
+  end isEqualTEST;
+
+
   function isEqual
     input Subscript subscript1;
     input Subscript subscript2;
@@ -394,6 +426,35 @@ public
 
     isEqual := listEmpty(rest);
   end isEqualList;
+
+  function isEqualListTEST
+    input list<Subscript> subscripts1;
+    input list<Subscript> subscripts2;
+    output Boolean isEqual;
+  protected
+    Subscript s2;
+    list<Subscript> rest = subscripts2;
+  algorithm
+    for s1 in subscripts1 loop
+      if listEmpty(rest) then
+        isEqual := false;
+        print("not empty rest\n");
+        return;
+      end if;
+
+      s2 :: rest := rest;
+
+      print("checking " + Subscript.toStringTEST(s1) + " -- " + Subscript.toStringTEST(s2) + "\n");
+      if not isEqual(s1, s2) then
+        isEqual := false;
+        print("not equal in check " + boolString(isEqualTEST(s1, s2)) + "\n");
+        return;
+      end if;
+    end for;
+
+    isEqual := listEmpty(rest);
+    print("not empty rest final\n");
+  end isEqualListTEST;
 
   function compare
     input Subscript subscript1;
@@ -811,6 +872,26 @@ public
         then "<" + InstNode.name(subscript.node) + ", " + String(subscript.dimIndex) + ">";
     end match;
   end toString;
+
+  function toStringTEST
+    input Subscript subscript;
+    output String string;
+  algorithm
+    string := match subscript
+      case RAW_SUBSCRIPT() then "[R]" + Dump.printSubscriptStr(subscript.subscript);
+      case UNTYPED() then "[U]" + Expression.toString(subscript.exp);
+      case INDEX() then "[I]" + Expression.toString(subscript.index);
+      case SLICE() then "[S]" + Expression.toString(subscript.slice);
+      case EXPANDED_SLICE()
+        then List.toString(subscript.indices, toString, "", "{", ", ", "}", false);
+      case WHOLE() then ":";
+      case SPLIT_PROXY()
+        then "<" + InstNode.name(subscript.origin) + ", " + InstNode.name(subscript.parent) + ">";
+      case SPLIT_INDEX()
+        then "<" + InstNode.name(subscript.node) + ", " + String(subscript.dimIndex) + ">";
+      else "FULL FAIL";
+    end match;
+  end toStringTEST;
 
   function toStringList
     input list<Subscript> subscripts;

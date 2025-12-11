@@ -1917,6 +1917,25 @@ public
     str := "/*" + Type.toString(typeOf(exp)) + "*/ " + toString(exp);
   end toStringTyped;
 
+  function toStringTEST
+    input Expression exp;
+    output String str;
+  algorithm
+    str := match exp
+      case INTEGER() then "INTEGER";
+      case REAL() then "REAL";
+      case STRING() then "STRING";
+      case CREF() then "CREF";
+      case SIZE() then "SIZE";
+      case BOX() then "BOX";
+      case UNBOX() then "UNBOX";
+      case MUTABLE() then "MUTABLE";
+      case BOOLEAN() then "BOOLEAN";
+      case ENUM_LITERAL() then "ENUM_LITERAL";
+      else "SOMETHING ELSE";
+    end match;
+  end toStringTEST;
+
   function toString
     input Expression exp;
     output String str;
