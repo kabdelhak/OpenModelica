@@ -2269,7 +2269,7 @@ algorithm
     case DAE.ASUB(exp = e,sub=subs)
       equation
         // Count the number of scalar subscripts, and remove as many dimensions.
-        i = sum(1 for sub guard(subscriptConstant(sub)) in subs);
+        i = sum(1 for sub guard(isScalar(e)) in list(Expression.getSubscriptExp(sub) for sub in subs));
         tp = unliftArrayX(typeof(e), i);
       then
         tp;
