@@ -107,7 +107,7 @@ public
     Adjacency.Matrix state_adj;
     Pointer<Equation> constraint, sliced_eqn, diffed_eqn;
     list<Slice<VariablePointer>> state_candidates = {}, states, dummy_states;
-    list<Pointer<Variable>> sliced_candidates, sliced_states, sliced_dummy_states, state_derivatives, dummy_derivatives = {};
+    list<Pointer<Variable>> sliced_candidates, sliced_states, sliced_dummy_states, state_derivatives, new_dummy_derivatives, dummy_derivatives = {};
     list<Pointer<Variable>> current_candidates, rest_candidates;
     list<Slice<EquationPointer>> constraint_eqns = {}, matched_eqns, unmatched_eqns;
     list<Pointer<Equation>> sliced_constraints, new_eqns = {};
@@ -174,7 +174,7 @@ public
       // Build differentiation argument structure
       diffArguments           := Differentiate.DifferentiationArguments.default(NBDifferentiate.DifferentiationType.TIME, funcTree);
       diffArguments.diff_map  := SOME(VarData.getStateOrder(varData));
-      diffArguments_ptr := Pointer.create(diffArguments);
+      diffArguments_ptr       := Pointer.create(diffArguments);
 
       if Flags.isSet(Flags.DUMMY_SELECT) then
         print(StringUtil.headline_3("[dummyselect] 1. Differentiate the constraint equations"));
@@ -290,7 +290,7 @@ public
       // --------------------------------------------------------
       // filter all variables that were created during differentiation for state derivatives
       // ToDo: these have to be slices as well! check if new created variables are whole dim of arrays
-      (state_derivatives, _) := List.extractOnTrue(diffArguments.new_vars, BVariable.isStateDerivative);
+      (state_derivatives, new_dummy_derivatives) := List.extractOnTrue(diffArguments.new_vars, BVariable.isStateDerivative);
 
       // cleanup varData and expand eqData
       // some algebraics -> states (to states)
@@ -303,6 +303,7 @@ public
       varData := VarData.addTypedList(varData, sliced_dummy_states, NBVariable.VarData.VarType.ALGEBRAIC);
       // some derivatives -> dummy derivatives (to algebraics)
       varData := VarData.addTypedList(varData, dummy_derivatives, NBVariable.VarData.VarType.ALGEBRAIC);
+      varData := VarData.addTypedList(varData, new_dummy_derivatives, NBVariable.VarData.VarType.ALGEBRAIC);
       // new equations
       eqData := EqData.addTypedList(eqData, new_eqns, EqData.EqType.CONTINUOUS);
 
@@ -310,6 +311,8 @@ public
       variables := VariablePointers.addList(diffArguments.new_vars, variables);
       // add all dummy states
       variables := VariablePointers.addList(sliced_dummy_states, variables);
+      // remove all states
+      variables := VariablePointers.removeList(sliced_states, variables);
       // add new equations (after cleanup because equation names are added there)
       equations := EquationPointers.addList(new_eqns, equations);
     else

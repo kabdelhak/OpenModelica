@@ -1040,13 +1040,23 @@ public
       case InstNode.VAR_NODE()
         algorithm
           state := getVarPointer(state_cref, sourceInfo());
+          print("creating derivative for: " + pointerToString(state) + "\n");
           // append the $DER to the name
           derNode := InstNode.VAR_NODE(DERIVATIVE_STR, dummy_ptr);
           der_cref := ComponentRef.append(state_cref, ComponentRef.fromNode(derNode, ComponentRef.scalarType(state_cref)));
           // make the actual derivative variable and make cref and the variable cyclic
           var := fromCref(ComponentRef.stripSubscriptsAll(der_cref), Variable.attributes(Pointer.access(state)));
-          var.backendinfo := BackendInfo.setVarKind(var.backendinfo, VariableKind.STATE_DER(state, NONE()));
+          
+          // if the supposed state is a state derivative, dummy derivative or dummy state, immediately create the new variable as a dummy derivative
+          if isStateDerivative(state) or isDummyDer(state) or isDummyState(state) then
+            var.backendinfo := BackendInfo.setVarKind(var.backendinfo, VariableKind.DUMMY_DER(state));
+          else
+            var.backendinfo := BackendInfo.setVarKind(var.backendinfo, VariableKind.STATE_DER(state, NONE()));
+          end if;
+
           (var_ptr, der_cref) := makeVarPtrCyclic(var, der_cref);
+          print("resulting derivative: " + pointerToString(var_ptr) + "\n");
+          print("finally original var: " + pointerToString(state) + "\n\n");
           if not scalarized then
             der_cref := ComponentRef.copySubscripts(cref, der_cref);
           end if;

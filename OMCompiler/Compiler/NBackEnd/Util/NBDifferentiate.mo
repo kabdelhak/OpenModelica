@@ -749,8 +749,10 @@ public
           (derCref, der_ptr) := BVariable.makeDerVar(exp.cref);
           // add derivative to new_vars
           diffArguments.new_vars := der_ptr :: diffArguments.new_vars;
-          // update algebraic variable to be a state
-          BVariable.setStateDerivativeVar(var_ptr, der_ptr);
+          // update algebraic variable to be a state (only if its not created as a dummy derivative)
+          if BVariable.isStateDerivative(der_ptr) then
+            BVariable.setStateDerivativeVar(var_ptr, der_ptr);
+          end if;
       then (Expression.fromCref(derCref), diffArguments);
 
       // -------------------------------------

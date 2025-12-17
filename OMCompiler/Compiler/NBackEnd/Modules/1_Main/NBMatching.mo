@@ -142,6 +142,7 @@ public
     // 1. match the partition
     try
       (matching, marked_eqns, mapping, matrixStrictness) := continue_(matching, adj, transposed, clear);
+      print(toString(matching, "MATCHING")+"\n");
     else
       Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed to match partition:\n"
         + VariablePointers.toString(vars, "partition vars") + "\n"
@@ -161,6 +162,7 @@ public
 
     // 3. Recompute adjacency and restart matching if something changed in step 2.
     if changed then
+      print("CHANGED!!!!\n");
       // ToDo: keep more of old information by only updating changed stuff
       full  := Adjacency.Matrix.createFull(vars, eqns);
       adj   := Adjacency.Matrix.fromFull(full, vars.map, eqns.map, eqns, matrixStrictness);
@@ -168,6 +170,7 @@ public
         // ####### DO NOT REDO BALANCING INITIALIZATION #######
         matching := regular(EMPTY_MATCHING, adj);
       else
+        print("going back in\n");
         // ####### REDO INDEX REDUCTION IF NECESSARY #######
         (matching, adj, full, vars, eqns, funcTree, varData, eqData) := singular(EMPTY_MATCHING, adj, full, vars, eqns, funcTree, varData, eqData, Kind, transposed);
       end if;
