@@ -1510,6 +1510,7 @@ protected
       key := arrayCreate(listLength(subs), 0);
       resolveEquationDimensions(List.zip(eq_dims, eq_reg), map2, key, m, modes, Mode.create(eqn_name, {original_cref}, false), Pointer.create(skip_idx));
     else
+      print("cref: "+ ComponentRef.toString(cref) + "\n");
       Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because subscripts, dimensions and dependencies were not of equal length.\n"
         + "variable subscripts(" + intString(listLength(subs)) + "): " + List.toString(subs, Subscript.toString) + "\n"
         + "variable dimensions(" + intString(listLength(dims)) + "): " + List.toString(dims, Dimension.toString) + "\n"

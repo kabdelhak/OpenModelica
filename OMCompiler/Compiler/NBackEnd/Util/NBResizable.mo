@@ -57,7 +57,7 @@ protected
   import Replacements = NBReplacements;
   import Solve = NBSolve;
 public
-  constant Boolean debug = false; // SET TO TRUE FOR DEBUGGING
+  constant Boolean debug = true; // SET TO TRUE FOR DEBUGGING
   type EvalOrder = enumeration(INDEPENDENT, FORWARD, BACKWARD, FAILED);
 
   function resize

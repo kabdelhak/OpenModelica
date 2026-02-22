@@ -34,6 +34,73 @@ simulate(simple_tuple); getErrorString();
 // ""
 // true
 // ""
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty (Real, Real) subs {}
+// in ty (Real, Real) subs {}
+// in ty Real subs {}
+// in ty (Real, Real) subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// =======================================================================
+//   [dumpResizable] No resizable parameters were detected in the model.
+// =======================================================================
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty (Real, Real) subs {}
+// in ty (Real, Real) subs {}
+// in ty Real subs {}
+// in ty Real subs {}
 // Simulation Function Alias
 // ---------------------------
 //   $FUN_1 ............. sin(time)
@@ -43,25 +110,51 @@ simulate(simple_tuple); getErrorString();
 //
 // Initial Function Alias
 // ------------------------
-//
+//   
 //
 // Clocked Function Alias
 // ------------------------
-//
+//   
 //
 // [dumpBackendInline] Inlining operatations for: {NORMAL, BUILTIN_EARLY, EARLY, DEFAULT}
 // ****************************************************************************************
 //
 // [NBInline.inlineTupleEquation] Inlining: [TUPL] (2) (x, y) = ($FUN_3, $FUN_4) ($RES_SIM_3)
+// in ty Real subs {}
 // -- Result: [SCAL] (1) x = $FUN_3 ($RES_SIM_10)
+// in ty Real subs {}
 // -- Result: [SCAL] (1) y = $FUN_4 ($RES_SIM_11)
 //
 // [NBInline.inlineTupleEquation] Inlining: [TUPL] (2) (z2, _) = ($FUN_5, $FUN_6) ($RES_SIM_1)
+// in ty Real subs {}
 // -- Result: [SCAL] (1) z2 = $FUN_5 ($RES_SIM_12)
 //
 // [NBInline.inlineTupleEquation] Inlining: [TUPL] (2) (_, z3) = ($FUN_5, $FUN_6) ($RES_SIM_0)
+// in ty Real subs {}
 // -- Result: [SCAL] (1) z3 = $FUN_6 ($RES_SIM_13)
 //
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
 // =====================================
 //   [dumprepl] Simulation Alias Sets:
 // =====================================
@@ -103,6 +196,77 @@ simulate(simple_tuple); getErrorString();
 // 	### Set Equations:
 // 	[SCAL] (1) a = $FUN_1 ($RES_SIM_5)
 //
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
 // [dumprepl] Constant Replacements:
 // ***********************************
 // [dumprepl] Trivial Alias Replacements:
@@ -130,18 +294,59 @@ simulate(simple_tuple); getErrorString();
 // [dumprepl] Nontrivial Alias Replacements:
 // *******************************************
 //
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
 // [dumpBackendInline] Inlining operatations for: {AFTER_INDEX_RED}
 // ******************************************************************
 //
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
 // [dumpBackendInline] Inlining operatations for: {NORMAL, BUILTIN_EARLY, EARLY, DEFAULT}
 // ****************************************************************************************
 //
-// record SimulationResult
-//     resultFile = "simple_tuple_res.mat",
-//     simulationOptions = "startTime = 0.0, stopTime = 1.0, numberOfIntervals = 500, tolerance = 1e-6, method = 'dassl', fileNamePrefix = 'simple_tuple', options = '', outputFormat = 'mat', variableFilter = '.*', cflags = '', simflags = ''",
-//     messages = "LOG_SUCCESS       | info    | The initialization finished successfully without homotopy method.
-// LOG_SUCCESS       | info    | The simulation finished successfully.
-// "
-// end SimulationResult;
-// ""
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
+// in ty Real subs {}
 // endResult
