@@ -820,43 +820,37 @@ protected
     input Pointer<Integer> index;
     input output list<Pointer<Equation>> eqns;
     input output Integer shift;
+  protected
+    Type ty;
+    Integer sz, dim_count;
+    list<Subscript> subs;
+    ComponentRef lhs;
+    Expression lhs_sub, lhs_exp, rhs_exp;
+    Pointer<Equation> new_eqn;
   algorithm
-    _ := match exp
-      local
-        Integer sz;
-        ComponentRef lhs;
-        Expression lhs_sub, lhs_exp, rhs_exp;
-        Pointer<Equation> new_eqn;
+    ty          := Expression.typeOf(exp);
+    sz          := Type.sizeOf(ty);
 
-      case Expression.ARRAY() algorithm
-        // a literal expression, does not need subscripting
-        for elem in exp.elements loop
-          (eqns, shift) := inlineCatCallLiterals(elem, cref, iter, attr, n, index, eqns, shift);
-        end for;
-      then ();
+    // properly subscript LHS with shift while adding enough 1 subscripts to fit the array depth and : to fit surrounding array
+    // similar to promote() handling
+    dim_count   := Type.dimensionCount(ty);
+    lhs_sub     := Expression.INTEGER(shift+1);
+    subs        := Subscript.fillWithWholeLeft(Subscript.INDEX(lhs_sub) :: List.fill(Subscript.INDEX(Expression.INTEGER(1)), n - dim_count), n);
+    lhs         := ComponentRef.mergeSubscripts(subs, cref);
+    lhs_exp     := Expression.fromCref(lhs);
 
-      else algorithm
-        sz          := Type.sizeOf(Expression.typeOf(exp));
-        // properly subscript LHS with shift
-        lhs_sub     := Expression.INTEGER(shift+1);
-        lhs         := ComponentRef.mergeSubscripts(Subscript.fillWithWholeLeft({Subscript.INDEX(lhs_sub)}, n), cref);
-        lhs_exp     := Expression.fromCref(lhs);
+    print("dim_count " + intString(dim_count) + "\n");
 
-        // wrap rhs in enough array to fit the lhs type
-        rhs_exp     := Expression.makeArray(Expression.typeOf(lhs_exp), arrayCreate(1, exp), true);
+    // create the new equation
+    new_eqn     := Equation.makeAssignment(lhs_exp, exp, index, NBEquation.SIMULATION_STR, iter, attr);
 
-        // create the new equation
-        new_eqn     := Equation.makeAssignment(lhs_exp, rhs_exp, index, NBEquation.SIMULATION_STR, iter, attr);
+    // bump the shift adding the size of this last equation
+    shift := shift + sz;
 
-        // bump the shift adding the size of this last equation
-        shift := shift + sz;
-
-        eqns := new_eqn :: eqns;
-        if Flags.isSet(Flags.DUMPBACKENDINLINE) then
-          print("-- Result: " + Equation.pointerToString(new_eqn) + "\n");
-        end if;
-      then ();
-    end match;
+    eqns := new_eqn :: eqns;
+    if Flags.isSet(Flags.DUMPBACKENDINLINE) then
+      print("-- Result: " + Equation.pointerToString(new_eqn) + "\n");
+    end if;
   end inlineCatCallLiterals;
 
   function createInlinedEquation
