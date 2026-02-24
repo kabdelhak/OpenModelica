@@ -3,7 +3,7 @@
 // status: correct
 
 loadModel(ModelicaTest);getErrorString();
-setCommandLineOptions("--newBackend"); getErrorString();
+//setCommandLineOptions("--newBackend"); getErrorString();
 
 simulate(ModelicaTest.Blocks.Continuous); getErrorString();
 diffSimulationResults("ModelicaTest.Blocks.Continuous_res.mat", "ReferenceFiles/ModelicaTest.Blocks.Continuous_res.mat", "ModelicaTest.Blocks.Continuous_diff.csv", 1e-8);

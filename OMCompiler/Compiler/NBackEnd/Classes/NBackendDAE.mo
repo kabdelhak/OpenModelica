@@ -555,6 +555,10 @@ protected
     Boolean scalarized = Flags.isSet(Flags.NF_SCALARIZE);
     list<Pointer<Variable>> forced_states = {};
   algorithm
+    for var in varList loop
+          print("original: " + Variable.toString(var) + "\n");
+
+    end for;
     vars := List.flatten(list(Variable.expandChildren(v) for v in varList));
 
     // instantiate variable data (with one more space for time variable);
@@ -570,6 +574,7 @@ protected
 
     // routine to prepare the lists for pointer arrays
     for var in listReverse(vars) loop
+      print("lowering: " + Variable.toString(var) + "\n");
       lowVar_ptr := lowerVariable(var);
       lowVar := Pointer.access(lowVar_ptr);
       variables := VariablePointers.add(lowVar_ptr, variables);

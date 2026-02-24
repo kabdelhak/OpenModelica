@@ -463,6 +463,8 @@ protected
     Option<Call_Aux> aux_opt;
     list<Expression> tpl_lst;
   algorithm
+    print("exp " + Expression.toString(exp) + " has type " + Type.toString(Expression.typeOf(exp)) + "\n");
+
     // strip nested iterator for the iterators that actually occure in the function call
     if not Iterator.isEmpty(iter) then
       (names, ranges, maps) := Iterator.getFrames(iter);
@@ -529,6 +531,9 @@ protected
         UnorderedMap.add(id, aux, map);
       end if;
     end if;
+
+
+    print("new exp " + Expression.toString(exp) + " has type " + Type.toString(Expression.typeOf(exp)) + "\n");
   end introduceAlias;
 
   function checkCallReplacement
