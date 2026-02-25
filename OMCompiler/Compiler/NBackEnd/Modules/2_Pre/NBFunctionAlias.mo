@@ -441,8 +441,10 @@ protected
     input Boolean init;
   algorithm
     exp := match exp
-      case Expression.CALL(call = Call.TYPED_ARRAY_CONSTRUCTOR()) then introduceAlias(exp, map, aux_index, iter, init);
-      case Expression.CALL(call = Call.TYPED_REDUCTION()) then introduceAlias(exp, map, aux_index, iter, init);
+      local
+        Type ty;
+      case Expression.CALL(call = Call.TYPED_ARRAY_CONSTRUCTOR(ty = ty))  guard(Type.sizeOf(ty) > 0) then introduceAlias(exp, map, aux_index, iter, init);
+      case Expression.CALL(call = Call.TYPED_REDUCTION(ty = ty))          guard(Type.sizeOf(ty) > 0) then introduceAlias(exp, map, aux_index, iter, init);
       else exp;
     end match;
   end introduceArrayConstructorAlias;

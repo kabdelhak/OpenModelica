@@ -740,7 +740,6 @@ protected
       failed := match arg
         case Expression.CREF(cref = rhs) guard(not failed) algorithm
           ty  := Expression.typeOf(arg);
-          sz  := Type.sizeOf(ty);
           if Type.isArray(ty) then
             dim := Type.nthDimension(ty, n);
             sz  := Dimension.size(dim);
@@ -758,7 +757,7 @@ protected
               rhs_exp     := Expression.fromCref(rhs);
               // the local iterator does not add anything, just take surrounding iterator
               local_iter  := iter;
-            else
+            elseif sz <> 0 then
               // ARRAY
               // make a range of proper size to the rhs
               range       := Expression.makeRange(Expression.INTEGER(1), NONE(), Expression.INTEGER(sz));
@@ -776,6 +775,7 @@ protected
           else
             // SCALAR
             // properly subscript LHS with shift
+            sz          := Type.sizeOf(ty);
             lhs_sub     := Expression.INTEGER(shift+1);
             lhs         := ComponentRef.mergeSubscripts(Subscript.fillWithWholeLeft({Subscript.INDEX(lhs_sub)}, n), cref);
             lhs_exp     := Expression.fromCref(lhs);
@@ -784,14 +784,16 @@ protected
             local_iter  := iter;
           end if;
 
-          // create the new equation
-          new_eqn     := Equation.makeAssignment(lhs_exp, rhs_exp, index, NBEquation.SIMULATION_STR, local_iter, attr);
-          // bump the shift adding the size of this last equation
-          shift := shift + sz;
+          if not sz == 0 then
+            // create the new equation
+            new_eqn     := Equation.makeAssignment(lhs_exp, rhs_exp, index, NBEquation.SIMULATION_STR, local_iter, attr);
+            // bump the shift adding the size of this last equation
+            shift := shift + sz;
 
-          eqns := new_eqn :: eqns;
-          if Flags.isSet(Flags.DUMPBACKENDINLINE) then
-            print("-- Result: " + Equation.pointerToString(new_eqn) + "\n");
+            eqns := new_eqn :: eqns;
+            if Flags.isSet(Flags.DUMPBACKENDINLINE) then
+              print("-- Result: " + Equation.pointerToString(new_eqn) + "\n");
+            end if;
           end if;
         then false;
 
