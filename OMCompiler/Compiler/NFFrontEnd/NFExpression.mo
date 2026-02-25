@@ -837,6 +837,11 @@ public
     end match;
   end typeOf;
 
+  function sizeOf
+    input Expression exp;
+    output Integer sz = Type.sizeOf(typeOf(exp));
+  end sizeOf;
+
   function setType
     input Type ty;
     input output Expression exp;
