@@ -125,12 +125,16 @@ protected
 algorithm
   next_context := InstContext.set(context, NFInstContext.CLASS);
   typeClassType(cls, NFBinding.EMPTY_BINDING, next_context, cls);
+  print("in typing\n");
   typeComponents(cls, next_context);
   execStat("NFTyping.typeComponents");
+  print("done comps\n");
   typeBindings(cls, next_context);
   execStat("NFTyping.typeBindings");
+  print("done bindings\n");
   typeClassSections(cls, next_context);
   execStat("NFTyping.typeClassSections");
+  print("done\n");
 end typeClass;
 
 function typeComponents
@@ -142,11 +146,16 @@ protected
   ClassTree cls_tree;
   InstNode ext_node, con, de;
 algorithm
+  print("type class " + InstNode.toString(cls) + "\n");
+  print("class: " + Class.toFlatString(c, cls) + "\n");
   () := match c
-    case Class.INSTANCED_CLASS(restriction = Restriction.TYPE()) then ();
+    case Class.INSTANCED_CLASS(restriction = Restriction.TYPE()) algorithm
+      print("INSTANCED CLASS 1\n");
+    then ();
 
     case Class.INSTANCED_CLASS(elements = cls_tree as ClassTree.FLAT_TREE())
       algorithm
+      print("INSTANCED CLASS 2\n");
         if InstContext.inInstanceAPI(context) then
           for c in cls_tree.components loop
             typeComponentTry(c, context);
@@ -174,6 +183,8 @@ algorithm
     case Class.TYPED_DERIVED()
       guard preserveDerived or Type.isArray(c.ty)
       algorithm
+            print("TYPED DERIVED 1\n");
+
         typeComponents(c.baseClass, context);
       then
         ();
@@ -181,6 +192,8 @@ algorithm
     // Derived types without dimensions can be collapsed.
     case Class.TYPED_DERIVED()
       algorithm
+      print("TYPED DERIVED 2\n");
+
         typeComponents(c.baseClass, context);
 
         // Only collapse for the normal instantiation, for the instance API we
@@ -196,20 +209,29 @@ algorithm
     case Class.INSTANCED_BUILTIN(ty = Type.COMPLEX(complexTy =
         ComplexType.EXTERNAL_OBJECT(constructor = con, destructor = de)))
       algorithm
+            print("INSTANCED BUILTIN 1\n");
+
         typeStructor(con);
         typeStructor(de);
       then
         ();
 
-    case Class.INSTANCED_BUILTIN() then ();
+    case Class.INSTANCED_BUILTIN() algorithm
+                print("INSTANCED BUILTIN 2\n");
+
+    then ();
 
     else
       algorithm
+                    print("UNINSTANCED CLASS\n");
+
         Error.assertion(false, getInstanceName() + " got uninstantiated class " + InstNode.name(cls), sourceInfo());
       then
         fail();
 
   end match;
+  print("done typing class " + InstNode.toString(cls) + "\n");
+
 end typeComponents;
 
 function typeStructor
@@ -438,6 +460,8 @@ protected
   Boolean is_deleted;
   array<Dimension> dims;
 algorithm
+  print("type component " + InstNode.toString(component) + "\n");
+
   if InstNode.isEmpty(component) or InstNode.isOnlyOuter(component) then
     return;
   end if;
@@ -498,7 +522,8 @@ algorithm
       then
         fail();
 
-  end match;
+  end match;  
+  print("done type comp\n");
 end typeComponent;
 
 function typeComponentTry
