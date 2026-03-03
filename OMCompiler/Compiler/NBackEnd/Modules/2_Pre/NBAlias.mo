@@ -693,7 +693,7 @@ protected
       case Expression.REAL()      then (true, 0);
       case Expression.BOOLEAN()   then (true, 0);
       case Expression.STRING()    then (true, 0);
-      case Expression.CREF()      then (true, 1);
+      case Expression.CREF()      then (true, if BVariable.isParamOrConst(BVariable.getVarPointer(exp.cref, sourceInfo())) or ComponentRef.isTime(exp.cref) then 0 else 1);
       // TODO what about parameters in the denominator, they could be zero, (alias strictness?)
       //case Expression.CREF()      then (true, if ComponentRef.variability(exp.cref) > Variability.NON_STRUCTURAL_PARAMETER then 1 else 0);
 
@@ -726,11 +726,14 @@ protected
       then (simple, num_cref);
 
       case Expression.MULTARY(operator = Operator.OPERATOR(op = op)) algorithm
+        print("checking " + Expression.toString(exp) + "\n");
         for arg in exp.inv_arguments loop
+          print("checkin arg " + Expression.toString(arg) + "\n");
           (simple, num_cref_tmp) := isSimpleExp(arg, simple);
           if not simple then return; end if;
           num_cref := num_cref + num_cref_tmp;
         end for;
+        print("simple: " + boolString(simple) + " num_cref denom: " + intString(num_cref) + "\n");
         // 1/x is not considered simple
         if op == NFOperator.Op.MUL and num_cref <> 0 then simple := false; return; end if;
         for arg in exp.arguments loop
