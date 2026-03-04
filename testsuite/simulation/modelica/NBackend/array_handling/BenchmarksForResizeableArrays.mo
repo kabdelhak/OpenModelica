@@ -180,7 +180,7 @@ package BenchmarksForResizeableArrays "Library with benchmark models to evaluate
     model WaterHammer "Water hammer model producing shock waves"
        import    Modelica.Units.SI;
        extends .Modelica.Icons.Example;
-        parameter Integer n=10;
+        parameter Integer n=3;
         parameter SI.Length L=100 "Length of the pipe";
         parameter SI.Diameter D=0.05 "Pipe diameter";
 
@@ -816,31 +816,31 @@ of a corresponding library.
       extends ArrayEquations.CascadedFirstOrder1(N = NR);
       parameter Integer NR = 10 annotation(__OpenModelica_resizable=true);
     end CascadedFirstOrder1_Resizable;
-
+    
     model CascadedFirstOrder2_Resizable
       extends ArrayEquations.CascadedFirstOrder2(N = NR);
       parameter Integer NR = 10 annotation(
         __OpenModelica_resizable = true);
     end CascadedFirstOrder2_Resizable;
-
+    
     model CascadedFirstOrder3_Resizable
       extends ArrayEquations.CascadedFirstOrder3(N = NR);
       parameter Integer NR = 10 annotation(
         __OpenModelica_resizable = true);
     end CascadedFirstOrder3_Resizable;
-
+    
     model CascadedFirstOrder4_Resizable
       extends ArrayEquations.CascadedFirstOrder4(N = NR);
       parameter Integer NR = 10 annotation(
         __OpenModelica_resizable = true);
     end CascadedFirstOrder4_Resizable;
-
+    
     model WaterHammer_Resizable
       extends ArrayEquations.WaterHammer(n = NR);
       parameter Integer NR = 10 annotation(
         __OpenModelica_resizable = true);
     end WaterHammer_Resizable;
-
+  
   end Resizable;
   annotation (uses(Modelica(version="4.0.0")), Documentation(info="<html>
 <p>Library <b>BenchmarksForResizeableArrays</b> is a <b>free</b> package providing benchmark models with arrays.
