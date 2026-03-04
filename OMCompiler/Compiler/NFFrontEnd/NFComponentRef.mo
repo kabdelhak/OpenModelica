@@ -1889,6 +1889,29 @@ public
     end match;
   end isFromCref;
 
+  function isInvalid
+    "returns true if the subscripting is known to be invalid"
+    input ComponentRef cref;
+    output Boolean b = false;
+  protected
+    Subscript sub;
+    list<Subscript> rest, subs = subscriptsAllWithWholeFlat(cref);
+    list<Dimension> dims = Type.arrayDims(getSubscriptedType(ComponentRef.stripSubscriptsAll(cref)));
+  algorithm
+    print("checking " + ComponentRef.toString(cref) + "\n");
+    if listLength(subs) == listLength(dims) then
+      rest := subs;
+      for dim in dims loop
+        sub :: rest := rest;
+        b := Subscript.isInvalid(sub, dim);
+        if b then 
+          break;
+        end if;
+      end for;
+    end if;
+    print("invalid: " + boolString(b) + "\n");
+  end isInvalid;
+
   function toListReverse
     input ComponentRef cref;
     input Boolean includeScope = true;

@@ -710,6 +710,7 @@ public
     input UnorderedSet<ComponentRef> set                      "unordered set of array crefs to check for relevance (index lookup)";
     input JacobianType jacType                                "sets the context";
   algorithm
+    print("checking " + StrongComponent.toString(comp) + "\n");
     () := match comp
       local
         Pointer<Equation> eqn_ptr;

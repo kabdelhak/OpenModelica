@@ -1263,6 +1263,27 @@ public
     end match;
   end first;
 
+  function isInvalid
+    "returns true if a subscript is known to be invalid"
+    input Subscript sub;
+    input Dimension dim;
+    output Boolean b;
+  algorithm
+    try
+      b := match (sub, Dimension.sizeExp(dim))
+        local
+          Integer i1, i2, start, stop;
+        case (INDEX(Expression.INTEGER(i1)), Expression.INTEGER(i2)) 
+        then i1 < 1 or i1 > i2;
+        case (SLICE(Expression.RANGE(start = Expression.INTEGER(start), stop = Expression.INTEGER(stop))), Expression.INTEGER(i2)) 
+        then start < 1 or stop > i2;
+        else false;
+      end match;
+    else
+      b := false;
+    end try;
+  end isInvalid;
+
   function isFirst
     input Subscript sub;
     output Boolean b;

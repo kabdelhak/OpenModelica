@@ -468,6 +468,7 @@ public
 
                 for dep in tmp loop
                   // also add inverse dependency (indep var) --> (res/tmp) :: rest
+                  print("trying to get " + ComponentRef.toString(dep) + "\n");
                   UnorderedMap.add(dep, cref :: UnorderedMap.getSafe(dep, map, sourceInfo()), map);
                 end for;
               end if;

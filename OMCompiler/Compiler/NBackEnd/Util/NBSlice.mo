@@ -578,6 +578,10 @@ public
     accum_dep_lst := listReverse(arrayList(accum_dep_arr));
     accum_dep_lst := if listEmpty(slice) then accum_dep_lst else List.getAtIndexLst(accum_dep_lst, slice, true);
 
+
+    // remove all invalid crefs
+    accum_dep_lst := list(list(d for d guard(not ComponentRef.isInvalid(d)) in deps) for deps in accum_dep_lst);
+
     tpl_lst := List.zip(row_crefs, accum_dep_lst);
   end getDependentCrefsPseudoForCausalized;
 
@@ -740,6 +744,7 @@ public
       else
         dependencies_scal := list(listAppend(Pointer.access(full_deps), d) for d in List.transposeList(dependencies_scal));
       end if;
+
       tpl_lst := List.zip(row_cref_scal, dependencies_scal);
     else
       tpl_lst := list((cref, {}) for cref in row_cref_scal);

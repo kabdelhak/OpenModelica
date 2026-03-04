@@ -180,7 +180,7 @@ package BenchmarksForResizeableArrays "Library with benchmark models to evaluate
     model WaterHammer "Water hammer model producing shock waves"
        import    Modelica.Units.SI;
        extends .Modelica.Icons.Example;
-        parameter Integer n=10;
+        parameter Integer n=3;
         parameter SI.Length L=100 "Length of the pipe";
         parameter SI.Diameter D=0.05 "Pipe diameter";
 
@@ -572,7 +572,7 @@ Martin Otter and Hilding Elmqvist (2025): <i>Resizable Arrays in Object-Oriented
     model MixedAlgebraicAndStatesArray
       "Cascaded first order block, where an element of a vector is algebraic and the other elements are states"
       extends .Modelica.Icons.Example;
-
+    
       parameter Integer N=3;
       parameter Real tau=0.1 "Time constant";
       Real u;
@@ -583,28 +583,28 @@ Martin Otter and Hilding Elmqvist (2025): <i>Resizable Arrays in Object-Oriented
       for i in 2:N loop
         tau*der(x[i]) = x[i-1] - x[i];
       end for;
-
+    
     annotation(experiment(StopTime=2.0), Documentation(info="<html>
-<p>
-This model is a variant of a set of cascaded first order blocks (model ScalableTestSuite.Elementary.SimpleODE.Models.CascadedFirstOrder)
-from the <a href=\"https://github.com/casella/ScalableTestSuite\">ScalableTestSuite</a>.
-In this model element x[1] is an algebraic variable, whereas elements x[2:N] are states.
-Such a model can only be processed if arrays are expanded.
-However, it is easy to rewrite the model, for example, in the form
-<a href=\"modelica://BenchmarksForResizeableArrays.ForLoops.CascadedFirstOrder\">BenchmarksForResizeableArrays.ForLoops.CascadedFirstOrder</a>,
-so that it can be processed without array expansion.
-</p>
-
-<p>
-In similar cases, you need to split the arrays in different pieces so that all elements of an array are either algebraic or states.
-</p>
-</html>",
+    <p>
+    This model is a variant of a set of cascaded first order blocks (model ScalableTestSuite.Elementary.SimpleODE.Models.CascadedFirstOrder)
+    from the <a href=\"https://github.com/casella/ScalableTestSuite\">ScalableTestSuite</a>.
+    In this model element x[1] is an algebraic variable, whereas elements x[2:N] are states.
+    Such a model can only be processed if arrays are expanded.
+    However, it is easy to rewrite the model, for example, in the form
+    <a href=\"modelica://BenchmarksForResizeableArrays.ForLoops.CascadedFirstOrder\">BenchmarksForResizeableArrays.ForLoops.CascadedFirstOrder</a>,
+    so that it can be processed without array expansion.
+    </p>
+    
+    <p>
+    In similar cases, you need to split the arrays in different pieces so that all elements of an array are either algebraic or states.
+    </p>
+    </html>",
     revisions="<html>
-<ul>
-<li>2025-05-02 by Hilding Elmqvist (<a href=\"http://www.mogram.net/\">Mogram AB</a>): Initial version.</li>
-</ul>
-<p>Copyright &copy; 2025 <a href=\"http://www.mogram.net/\">Mogram AB</a></p>
-</html>"));
+    <ul>
+    <li>2025-05-02 by Hilding Elmqvist (<a href=\"http://www.mogram.net/\">Mogram AB</a>): Initial version.</li>
+    </ul>
+    <p>Copyright &copy; 2025 <a href=\"http://www.mogram.net/\">Mogram AB</a></p>
+    </html>"));
     end MixedAlgebraicAndStatesArray;
 
   model SlidingMass3DthatRequiresScalarization
