@@ -825,6 +825,7 @@ algorithm
 
     // multary with only one argument
     case Expression.MULTARY(arguments = {tmp}, inv_arguments = {}) algorithm
+      print("checp1\n");
     then simplify(tmp);
 
     // non-empty multaries
@@ -833,7 +834,9 @@ algorithm
       mcl := Operator.getMathClassification(operator);
 
       // simplify arguments first
+      print("checp2\n");
       arguments := list(simplify(arg) for arg in arguments);
+      print("checp3\n");
       inv_arguments := list(simplify(arg) for arg in inv_arguments);
       (arguments, inv_arguments, isNegative) := simplifyMultarySigns(arguments, inv_arguments, mcl);
 
