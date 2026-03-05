@@ -180,7 +180,7 @@ package BenchmarksForResizeableArrays "Library with benchmark models to evaluate
     model WaterHammer "Water hammer model producing shock waves"
        import    Modelica.Units.SI;
        extends .Modelica.Icons.Example;
-        parameter Integer n=10;
+        parameter Integer n=3;
         parameter SI.Length L=100 "Length of the pipe";
         parameter SI.Diameter D=0.05 "Pipe diameter";
 
@@ -549,7 +549,7 @@ Martin Otter and Hilding Elmqvist (2025): <i>Resizable Arrays in Object-Oriented
           parameter Real m = 1.0 "Mass of point mass";
           parameter Real L = 1.0 "Length of the pendulum";
           parameter Real g = 9.81 "Gravity";
-
+    
           Real theta(start=2, fixed=true) "Angle of pendulum";
           Real der_theta(start=0, fixed=true) "Derivative of theta";
           Real r[2] "Position of mass point";
@@ -561,18 +561,18 @@ Martin Otter and Hilding Elmqvist (2025): <i>Resizable Arrays in Object-Oriented
           der(r) = v;
           der(theta) = der_theta;
     annotation(experiment(StopTime=1.5), Documentation(revisions="<html>
-<ul>
-<li>2025-05-02 by Martin Otter (<a href=\"https://www.dlr.de/en/fk\">DLR-FK</a>): Initial version.</li>
-</ul>
-<p>Copyright &copy; 2025 Deutsches Zentrum f&uuml;r Luft- und Raumfahr e.V. - Institute of Vehicle Concepts .(<a href=\"https://www.dlr.de/en/fk\">DLR-FK</a>)</p>
-</p>
-</html>"));
+    <ul>
+    <li>2025-05-02 by Martin Otter (<a href=\"https://www.dlr.de/en/fk\">DLR-FK</a>): Initial version.</li>
+    </ul>
+    <p>Copyright &copy; 2025 Deutsches Zentrum f&uuml;r Luft- und Raumfahr e.V. - Institute of Vehicle Concepts .(<a href=\"https://www.dlr.de/en/fk\">DLR-FK</a>)</p>
+    </p>
+    </html>"));
     end WrongNumberOfArrayEquations;
 
     model MixedAlgebraicAndStatesArray
       "Cascaded first order block, where an element of a vector is algebraic and the other elements are states"
       extends .Modelica.Icons.Example;
-
+    
       parameter Integer N=3;
       parameter Real tau=0.1 "Time constant";
       Real u;
@@ -583,28 +583,28 @@ Martin Otter and Hilding Elmqvist (2025): <i>Resizable Arrays in Object-Oriented
       for i in 2:N loop
         tau*der(x[i]) = x[i-1] - x[i];
       end for;
-
+    
     annotation(experiment(StopTime=2.0), Documentation(info="<html>
-<p>
-This model is a variant of a set of cascaded first order blocks (model ScalableTestSuite.Elementary.SimpleODE.Models.CascadedFirstOrder)
-from the <a href=\"https://github.com/casella/ScalableTestSuite\">ScalableTestSuite</a>.
-In this model element x[1] is an algebraic variable, whereas elements x[2:N] are states.
-Such a model can only be processed if arrays are expanded.
-However, it is easy to rewrite the model, for example, in the form
-<a href=\"modelica://BenchmarksForResizeableArrays.ForLoops.CascadedFirstOrder\">BenchmarksForResizeableArrays.ForLoops.CascadedFirstOrder</a>,
-so that it can be processed without array expansion.
-</p>
-
-<p>
-In similar cases, you need to split the arrays in different pieces so that all elements of an array are either algebraic or states.
-</p>
-</html>",
+    <p>
+    This model is a variant of a set of cascaded first order blocks (model ScalableTestSuite.Elementary.SimpleODE.Models.CascadedFirstOrder)
+    from the <a href=\"https://github.com/casella/ScalableTestSuite\">ScalableTestSuite</a>.
+    In this model element x[1] is an algebraic variable, whereas elements x[2:N] are states.
+    Such a model can only be processed if arrays are expanded.
+    However, it is easy to rewrite the model, for example, in the form
+    <a href=\"modelica://BenchmarksForResizeableArrays.ForLoops.CascadedFirstOrder\">BenchmarksForResizeableArrays.ForLoops.CascadedFirstOrder</a>,
+    so that it can be processed without array expansion.
+    </p>
+    
+    <p>
+    In similar cases, you need to split the arrays in different pieces so that all elements of an array are either algebraic or states.
+    </p>
+    </html>",
     revisions="<html>
-<ul>
-<li>2025-05-02 by Hilding Elmqvist (<a href=\"http://www.mogram.net/\">Mogram AB</a>): Initial version.</li>
-</ul>
-<p>Copyright &copy; 2025 <a href=\"http://www.mogram.net/\">Mogram AB</a></p>
-</html>"));
+    <ul>
+    <li>2025-05-02 by Hilding Elmqvist (<a href=\"http://www.mogram.net/\">Mogram AB</a>): Initial version.</li>
+    </ul>
+    <p>Copyright &copy; 2025 <a href=\"http://www.mogram.net/\">Mogram AB</a></p>
+    </html>"));
     end MixedAlgebraicAndStatesArray;
 
   model SlidingMass3DthatRequiresScalarization
@@ -816,41 +816,46 @@ of a corresponding library.
       extends ArrayEquations.CascadedFirstOrder1(N = NR);
       parameter Integer NR = 10 annotation(__OpenModelica_resizable=true);
     end CascadedFirstOrder1_Resizable;
-
+    
     model CascadedFirstOrder2_Resizable
       extends ArrayEquations.CascadedFirstOrder2(N = NR);
       parameter Integer NR = 10 annotation(
         __OpenModelica_resizable = true);
     end CascadedFirstOrder2_Resizable;
-
+    
     model CascadedFirstOrder3_Resizable
       extends ArrayEquations.CascadedFirstOrder3(N = NR);
       parameter Integer NR = 10 annotation(
         __OpenModelica_resizable = true);
     end CascadedFirstOrder3_Resizable;
-
+    
     model CascadedFirstOrder4_Resizable
       extends ArrayEquations.CascadedFirstOrder4(N = NR);
       parameter Integer NR = 10 annotation(
         __OpenModelica_resizable = true);
     end CascadedFirstOrder4_Resizable;
-
+    
     model WaterHammer_Resizable
       extends ArrayEquations.WaterHammer(n = NR);
       parameter Integer NR = 10 annotation(
         __OpenModelica_resizable = true);
     end WaterHammer_Resizable;
-
+    
     model CascadedFirstOrder_Resizable
       extends ForLoops.CascadedFirstOrder(N = NR);
       parameter Integer NR = 10 annotation(__OpenModelica_resizable=true);
     end CascadedFirstOrder_Resizable;
-
+    
     model FiltersInSeries_Resizable
       extends ComponentArrays.FiltersInSeries(N = NR);
       parameter Integer NR = 10 annotation(__OpenModelica_resizable=true);
     end FiltersInSeries_Resizable;
-
+    
+    model TransmissionLine_Resizable
+      extends ComponentArrays.TransmissionLine(N = NR);
+      parameter Integer NR = 10 annotation(__OpenModelica_resizable=true);
+    end TransmissionLine_Resizable;
+  
   end Resizable;
   annotation (uses(Modelica(version="4.0.0")), Documentation(info="<html>
 <p>Library <b>BenchmarksForResizeableArrays</b> is a <b>free</b> package providing benchmark models with arrays.
