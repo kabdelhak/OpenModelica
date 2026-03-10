@@ -875,7 +875,7 @@ public
       Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because the for-loop had more than one body equation:\n" + Equation.toString(eqn)});
       fail();
     end try;
-
+    print("cp1\n");
     dependencies := Equation.collectCrefs(eqn, function Slice.getDependentCrefCausalized(set = set), Expression.fakeMap);
     if ComponentRef.isEmpty(var_cref) then
       SOME(Expression.CREF(cref = cref)) := Equation.getLHS(body);
