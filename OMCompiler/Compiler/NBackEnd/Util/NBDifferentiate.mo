@@ -1139,9 +1139,14 @@ public
           arguments_inputs := List.zip(call.arguments, func.inputs);
           for tpl in arguments_inputs loop
             (arg, inp) := tpl;
-            // do not check for continuous if it is for functions (differentiating a function inside a function)
-            // crefs are not lowered there! assume it is continuous
-            isCont := (diffArguments.diffType == DifferentiationType.FUNCTION) or BackendUtil.isContinuous(arg, false);
+
+            // do not check for continuous if it is for functions (differentiating a function inside a function) crefs are not lowered there! assume it is continuous
+            isCont := ((diffArguments.diffType == DifferentiationType.FUNCTION)
+              // check if it is continuous
+              or BackendUtil.isContinuous(arg, false))
+              // check if the input derivative already exists and is skipped becase of higher order derivative
+              and not Util.applyOptionOrDefault(func.interfaceDiffInfo, function UnorderedSet.contains(key = inp), false);
+
             // input type has to be real value or a function pointer
             isReal := Type.isReal(Type.arrayElementType(Expression.typeOf(arg)));
             isFunc := InstNode.isFunction(inp);
@@ -2044,6 +2049,7 @@ public
         Class new_cls;
         DifferentiationArguments funcDiffArgs;
         UnorderedMap<ComponentRef, ComponentRef> diff_map = UnorderedMap.new<ComponentRef>(ComponentRef.hash, ComponentRef.isEqual);
+        UnorderedSet<InstNode> diffInfo;
         list<Algorithm> algorithms;
         FunctionDerivative funcDer;
         Function dummy_func;
@@ -2063,15 +2069,21 @@ public
             funcDiffArgs          := DifferentiationArguments.default();
             funcDiffArgs.diffType := DifferentiationType.FUNCTION;
             funcDiffArgs.funcMap  := diffArguments.funcMap;
+            // prepare interface diff info if the function
+            diffInfo := match der_func.interfaceDiffInfo
+              case SOME(diffInfo) then diffInfo;
+              else UnorderedSet.new(InstNode.hash, InstNode.nameEqual);
+            end match;
+
             createInterfaceDerivatives(der_func.inputs, interface_map, diff_map);
             createInterfaceDerivatives(der_func.locals, interface_map, diff_map);
             createInterfaceDerivatives(der_func.outputs, interface_map, diff_map);
             funcDiffArgs.diff_map := SOME(diff_map);
 
             // differentiate interface arguments
-            (inputs, funcDiffArgs)  := differentiateFunctionInterfaceNodes(der_func.inputs, interface_map, diff_map, funcDiffArgs, true);
-            (locals, funcDiffArgs)  := differentiateFunctionInterfaceNodes(der_func.locals, interface_map, diff_map, funcDiffArgs, false);
-            (outputs, funcDiffArgs) := differentiateFunctionInterfaceNodes(der_func.outputs, interface_map, diff_map, funcDiffArgs, false);
+            (inputs, funcDiffArgs)  := differentiateFunctionInterfaceNodes(der_func.inputs, interface_map, diff_map, funcDiffArgs, diffInfo, true);
+            (locals, funcDiffArgs)  := differentiateFunctionInterfaceNodes(der_func.locals, interface_map, diff_map, funcDiffArgs, diffInfo, false);
+            (outputs, funcDiffArgs) := differentiateFunctionInterfaceNodes(der_func.outputs, interface_map, diff_map, funcDiffArgs, diffInfo, false);
 
             // update inputs, outputs and locals, add old outputs to locals as they might still be used as temporary variables
             der_func.inputs   := inputs;
@@ -2123,10 +2135,11 @@ public
               else funcDiffArgs;
             end match;
 
-            node.cls              := Pointer.create(new_cls);
-            cachedData            := CachedData.FUNCTION({der_func}, true, false);
-            der_func.node         := InstNode.setFuncCache(node, cachedData);
-            der_func.derivatives  := {};
+            node.cls                    := Pointer.create(new_cls);
+            cachedData                  := CachedData.FUNCTION({der_func}, true, false);
+            der_func.node               := InstNode.setFuncCache(node, cachedData);
+            der_func.derivatives        := {};
+            der_func.interfaceDiffInfo  := SOME(diffInfo);
 
             // save the function tree
             diffArguments.funcMap := funcDiffArgs.funcMap;
@@ -2165,11 +2178,13 @@ public
     "differentiates function interface nodes (inputs, outputs, locals) and
     adds them to the diff_map used for differentiation. Also returns the new
     interface node lists for the differentiated function.
-    (outputs only have the differentiated and not the original interface nodes)"
+    Note1: outputs only have the differentiated and not the original interface nodes
+    Note2: for derivatives of higher orders skip the previously differentiated interface nodes"
     input output list<InstNode> interface_nodes;
     input UnorderedMap<String, Boolean> interface_map;
     input UnorderedMap<ComponentRef, ComponentRef> diff_map;
     input output DifferentiationArguments diffArgs;
+    input UnorderedSet<InstNode> diffInfo;
     input Boolean keepOld;
   protected
     list<InstNode> new_nodes;
@@ -2177,9 +2192,15 @@ public
   algorithm
     new_nodes := if keepOld then listReverse(interface_nodes) else {};
     for node in interface_nodes loop
+      // check if its part of the interface
       if not UnorderedMap.contains(InstNode.name(node), interface_map) then
-        (d_node, diffArgs) := differentiateFunctionInterfaceNode(node, diff_map, diffArgs);
-        new_nodes := d_node :: new_nodes;
+        // check if derivative of higher order skips this
+        if not UnorderedSet.contains(node, diffInfo) then
+          (d_node, diffArgs) := differentiateFunctionInterfaceNode(node, diff_map, diffArgs);
+          new_nodes := d_node :: new_nodes;
+          // add to skipped nodes if differentated again because the derivative now already exists
+          UnorderedSet.add(node, diffInfo);
+        end if;
       end if;
     end for;
     interface_nodes := listReverse(new_nodes);
@@ -2289,12 +2310,14 @@ public
     UnorderedMap<ComponentRef, ComponentRef> diff_map = UnorderedMap.new<ComponentRef>(ComponentRef.hash, ComponentRef.isEqual);
     UnorderedMap<String, Boolean> interface_map;
     DifferentiationArguments diffArgs = DifferentiationArguments.default();
+    UnorderedSet<InstNode> diffInfo;
     list<Algorithm> algorithms;
     CachedData cachedData;
     InstNode diffVar;
     ComponentRef diffCref;
     list<InstNode> locals, outputs, local_outputs;
     Boolean changed = false;
+
   algorithm
     func := match func
       case der_func as Function.FUNCTION(node = InstNode.CLASS_NODE(cls = cls)) algorithm
@@ -2306,6 +2329,11 @@ public
                 // prepare differentiation arguments
                 diffArgs.diffType     := DifferentiationType.FUNCTION;
                 diffArgs.funcMap      := funcMap;
+                // prepare interface diff info if the function
+                diffInfo := match der_func.interfaceDiffInfo
+                  case SOME(diffInfo) then diffInfo;
+                  else UnorderedSet.new(InstNode.hash, InstNode.nameEqual);
+                end match;
 
                 interface_map := UnorderedMap.fromLists(list(InstNode.name(var) for var in der_func.inputs), List.fill(false, listLength(der_func.inputs)), stringHashDjb2, stringEqual);
 
@@ -2323,12 +2351,13 @@ public
                   createInterfaceDerivatives(der_func.outputs, interface_map, diff_map);
                   diffArgs.diff_map   := SOME(diff_map);
 
-                  (locals, diffArgs)  := differentiateFunctionInterfaceNodes(der_func.locals, interface_map, diff_map, diffArgs, true);
-                  (outputs, diffArgs) := differentiateFunctionInterfaceNodes(der_func.outputs, interface_map, diff_map, diffArgs, false);
+                  (locals, diffArgs)  := differentiateFunctionInterfaceNodes(der_func.locals, interface_map, diff_map, diffArgs, diffInfo, true);
+                  (outputs, diffArgs) := differentiateFunctionInterfaceNodes(der_func.outputs, interface_map, diff_map, diffArgs, diffInfo, false);
 
-                  diffCref          := UnorderedMap.getSafe(ComponentRef.fromNode(var, InstNode.getType(var)), diff_map, sourceInfo());
-                  der_func.locals   := listAppend(locals, local_outputs);
-                  der_func.outputs  := outputs;
+                  diffCref                    := UnorderedMap.getSafe(ComponentRef.fromNode(var, InstNode.getType(var)), diff_map, sourceInfo());
+                  der_func.locals             := listAppend(locals, local_outputs);
+                  der_func.outputs            := outputs;
+                  der_func.interfaceDiffInfo  := SOME(diffInfo);
 
                   // differentiate function statements
                   (algorithms, diffArgs) := List.mapFold(algorithms, differentiateAlgorithm, diffArgs);
