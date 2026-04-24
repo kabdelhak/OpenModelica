@@ -694,7 +694,7 @@ public
 
         case Expression.CALL(call = call as Call.TYPED_ARRAY_CONSTRUCTOR()) algorithm
           // inline the frontend iterator to get frames for backend iterator
-          for tpl in listReverse(call.iters) loop
+          for tpl in call.iters loop
             frames := createFrame(tpl, new_iters) :: frames;
           end for;
           tmp := fromFrames(frames);
