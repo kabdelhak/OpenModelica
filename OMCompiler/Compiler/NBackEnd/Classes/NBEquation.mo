@@ -2586,6 +2586,11 @@ public
         rhs   := Expression.map(rhs, Expression.repairOperator);
         subs  := Iterator.normalizedSubscripts(iter, iter_map);
 
+        print("lhs: " + ComponentRef.toString(var.name) + "\n");
+        print("Iterator: " + Iterator.toString(iter) + "\n");
+        print(UnorderedMap.toString(dims_map, function Dimension.toStringList(brackets = true), ComponentRef.listToString) + "\n");
+        print(UnorderedMap.toString(iter_map, ComponentRef.toString, Subscript.toString) + "\n");
+
         lhs := Expression.fromCref(ComponentRef.mergeSubscriptsMapped(var.name, dims_map, iter_map));
         eqn := makeAssignment(lhs, rhs, idx, context, iter, eqnAttr);
         // this could lead to non existing variables, should not be a problem though
