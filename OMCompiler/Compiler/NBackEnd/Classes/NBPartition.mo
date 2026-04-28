@@ -162,7 +162,9 @@ public
           fail();
         end if;
 
-        if BClock.isBaseClock(clock) then
+        if BClock.isInferred(clock) then
+          association := CLOCKED(clock, NONE(), clock_deps, false);
+        elseif BClock.isBaseClock(clock) then
           association := CLOCKED(clock, NONE(), clock_deps, false);
         else
           base_name := UnorderedMap.getSafe(name, info.subToBase, sourceInfo());
@@ -252,7 +254,7 @@ public
           if UnorderedMap.contains(exp.cref, info.baseClocks) then
             clock_opt := SOME(UnorderedMap.getSafe(exp.cref, info.baseClocks, sourceInfo()));
           elseif UnorderedMap.contains(exp.cref, info.subClocks) then
-            clock_opt := SOME( UnorderedMap.getSafe(exp.cref, info.subClocks, sourceInfo()));
+            clock_opt := SOME(UnorderedMap.getSafe(exp.cref, info.subClocks, sourceInfo()));
           else
             clock_opt := NONE();
           end if;
@@ -268,9 +270,6 @@ public
             case (SOME(new as BClock.SUB_CLOCK()), SOME((_, old as BClock.BASE_CLOCK()))) algorithm
               Pointer.update(clock_ptr, SOME((exp.cref, new)));
             then ();
-
-            // new base clock that is inferred --> nothing happens
-            case (SOME(new as BClock.BASE_CLOCK(clock = ClockKind.INFERRED_CLOCK())), _) then ();
 
             // old base clock is inferred --> always take new clock
             case (SOME(new), SOME((_, old as BClock.BASE_CLOCK(clock = ClockKind.INFERRED_CLOCK())))) algorithm

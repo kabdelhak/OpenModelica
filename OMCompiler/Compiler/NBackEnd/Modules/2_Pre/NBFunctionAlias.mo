@@ -48,6 +48,7 @@ protected
 
   // NF imports
   import Call = NFCall;
+  import ClockKind = NFClockKind;
   import ComponentRef = NFComponentRef;
   import Dimension = NFDimension;
   import Expression = NFExpression;
@@ -286,6 +287,7 @@ protected
     VariablePointers variables = VarData.getVariables(varData);
     UnorderedSet<VariablePointer> set = UnorderedSet.new(BVariable.hash, BVariable.equalName) "new iterators";
     UnorderedMap<BClock, ComponentRef> clock_map;
+    UnorderedSet<ComponentRef> inferred_clocks;
     Pointer<Integer> aux_index = Pointer.create(1);
     list<Pointer<Variable>> new_vars_disc = {}, new_vars_cont = {}, new_vars_init = {}, new_vars_recd = {}, new_vars_clck;
     list<Pointer<Equation>> new_eqns_disc = {}, new_eqns_cont = {}, new_eqns_init = {}, new_eqns_clck;
@@ -323,7 +325,7 @@ protected
           resolveAux(map, eqData.uniqueIndex, true, new_vars_disc, new_vars_cont, new_vars_init, new_vars_recd, new_eqns_disc, new_eqns_cont, new_eqns_init);
 
         // create clock alias equations
-        (new_eqns_clck, new_vars_clck, clock_map) := addClockedAlias(eqData.simulation, eqData.uniqueIndex);
+        (new_eqns_clck, new_vars_clck, clock_map, inferred_clocks) := addClockedAlias(eqData.simulation, eqData.uniqueIndex);
       then ();
       else ();
     end match;
@@ -355,6 +357,7 @@ protected
       print(aliasListToString(debug_lst_sim, Call_Id.toString, Call_Aux.toString, "Simulation Function"));
       print(aliasListToString(debug_lst_ini, Call_Id.toString, Call_Aux.toString, "Initial Function"));
       print(aliasListToString(UnorderedMap.toList(clock_map), BClock.toString, ComponentRef.toString, "Clocked Function"));
+      print(aliasListToString(list((Expression.CLKCONST(ClockKind.INFERRED_CLOCK()), cl) for cl in UnorderedSet.toList(inferred_clocks)), Expression.toString, ComponentRef.toString, "Inferred Clocked Function"));
     end if;
   end functionAliasDefault;
 
@@ -788,14 +791,20 @@ protected
     output list<Pointer<Equation>> clock_eqns = {};
     output list<Pointer<Variable>> clock_vars;
     output UnorderedMap<BClock, ComponentRef> collector = UnorderedMap.new<ComponentRef>(BClock.hash, BClock.isEqual);
+    output UnorderedSet<ComponentRef> inferred_clocks = UnorderedSet.new(ComponentRef.hash, ComponentRef.isEqual);
   protected
     Pointer<list<Pointer<Variable>>> new_clocks = Pointer.create({});
     Pointer<Integer> idx = Pointer.create(0);
     BClock clock;
     ComponentRef clock_name;
   algorithm
-    EquationPointers.mapExp(equations, function Partitioning.extractClocks(collector = collector, new_clocks = new_clocks, idx = idx));
+    EquationPointers.mapExp(equations, function Partitioning.extractClocks(collector = collector, inferred_clocks = inferred_clocks, new_clocks = new_clocks, idx = idx));
     clock_vars := Pointer.access(new_clocks);
+    // create all alias equations for the inferred clocks
+    for clock_name in UnorderedSet.toList(inferred_clocks) loop
+      clock_eqns := Equation.makeAssignment(Expression.fromCref(clock_name), Expression.CLKCONST(ClockKind.INFERRED_CLOCK()), eqn_idx, "AUX", Iterator.EMPTY(), EquationAttributes.default(EquationKind.CLOCKED, false)) :: clock_eqns;
+    end for;
+    // create all alias equations for the remaining clocks
     for tpl in UnorderedMap.toList(collector) loop
       (clock, clock_name) := tpl;
       clock_eqns := Equation.makeAssignment(Expression.fromCref(clock_name), BClock.toExp(clock), eqn_idx, "AUX", Iterator.EMPTY(), EquationAttributes.default(EquationKind.CLOCKED, false)) :: clock_eqns;

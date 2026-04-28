@@ -558,6 +558,7 @@ public
     "replace clock constructors in expressions with variables"
     input output Expression exp;
     input UnorderedMap<BClock, ComponentRef> collector;
+    input UnorderedSet<ComponentRef> inferred_clocks; 
     input Pointer<list<Pointer<Variable>>> new_clocks;
     input Pointer<Integer> idx;
   algorithm
@@ -567,15 +568,20 @@ public
         Pointer<Variable> clock_var;
         ComponentRef clock_name;
 
-      case Expression.CLKCONST() guard(not ClockKind.isInferred(exp.clk)) algorithm
+      case Expression.CLKCONST() algorithm
         clock := BClock.BASE_CLOCK(exp.clk);
         if UnorderedMap.contains(clock, collector) then
           clock_name := UnorderedMap.getSafe(clock, collector, sourceInfo());
         else
           (clock_var, clock_name) := BVariable.makeClockVar(Pointer.access(idx), Expression.typeOf(exp));
-          UnorderedMap.add(clock, clock_name, collector);
           Pointer.update(new_clocks, clock_var :: Pointer.access(new_clocks));
           Pointer.update(idx, Pointer.access(idx) + 1);
+          // if the clock is inferred do not save it to the map as it is ambigous
+          if ClockKind.isInferred(exp.clk) then
+            UnorderedSet.add(clock_name, inferred_clocks);
+          else
+            UnorderedMap.add(clock, clock_name, collector);
+          end if;
         end if;
       then Expression.fromCref(clock_name);
 
@@ -667,7 +673,6 @@ protected
       for eqn_name in UnorderedSet.toList(cluster.eqn_idnts) loop
         Equation.map(Pointer.access(EquationPointers.getEqnByName(equations, eqn_name)), function findClock(info = info, clock_ptr = clock_ptr), NONE(), Expression.fakeMap);
         clock_opt := Pointer.access(clock_ptr);
-        if Util.isSome(clock_opt) then break; end if;
       end for;
 
       // if a clock/clocked signal was found, add all a mapping for each variable in the cluster to the clock
@@ -914,8 +919,13 @@ protected
     // resolve inner sub clock dependencies
     ClockedInfo.resolveSubClocks(info, clock_map);
 
+    print(ClockedInfo.toString(info) + "\n");
+
     // get the actual partitions from the clusters and split continuous/clocked
     partitions := list(Cluster.toPartition(cl, variables, equations, kind, info, held_crefs) for cl in UnorderedMap.valueList(cluster_map));
+
+      print(StringUtil.headline_1("intermediate Partitioning result:") + "\n" + List.toString(partitions, function Partition.Partition.toString(level = 2), "", "", "\n", "\n"));
+
     // update the partitions if one of their variables is in a hold() function
     partitions := list(Partition.Partition.updateHeldVars(part, held_crefs) for part in partitions);
     // merge all clocked partitions with equal base and sub clock and find the proper order
