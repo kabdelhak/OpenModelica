@@ -447,37 +447,66 @@ public
       input UnorderedMap<ComponentRef, ComponentRef> clock_map;
       output ComponentRef base_clock;
     protected
-      ComponentRef implicit_clock, parent_clock = UnorderedMap.getSafe(clock_name, info.subToBase, sourceInfo());
+      ComponentRef parent_clock = UnorderedMap.getSafe(clock_name, info.subToBase, sourceInfo());
       Option<ComponentRef> implicit_clock_opt = NONE();
       BClock dest, src;
+      Option<BClock> clock_opt = UnorderedMap.get(parent_clock, info.baseClocks);
     algorithm
-      if UnorderedMap.contains(parent_clock, info.baseClocks) then
+      // some not inferred 
+      // none is sub
+      base_clock := match clock_opt
+        local
+          BClock clock;
+        case SOME(clock) guard(BClock.isInferredClock(clock)) algorithm
+          // base but implicit clock
+          implicit_clock_opt  := SOME(parent_clock);
+          parent_clock        := UnorderedMap.getSafe(parent_clock, clock_map, sourceInfo());
+          base_clock          := updateSubToBaseClock(clock_name, parent_clock, implicit_clock_opt, info, clock_map);
+        then base_clock;
+
+        case NONE() algorithm
+          // not a base, update necessary
+          if not UnorderedMap.contains(parent_clock, info.subClocks) then
+            // neither base nor sub clock --> implicit clock. map it
+            implicit_clock_opt  := SOME(parent_clock);
+            parent_clock        := UnorderedMap.getSafe(parent_clock, clock_map, sourceInfo());
+          else
+            implicit_clock_opt  := NONE();
+          end if;
+          base_clock := updateSubToBaseClock(clock_name, parent_clock, implicit_clock_opt, info, clock_map);
+        then base_clock;
+
         // just a base clock
-        base_clock := parent_clock;
-      else
-        // not a base, update necessary
-        if not UnorderedMap.contains(parent_clock, info.subClocks) then
-          // neither base nor sub clock --> implicit clock. map it
-          implicit_clock_opt := SOME(parent_clock);
-          parent_clock := UnorderedMap.getSafe(parent_clock, clock_map, sourceInfo());
-        end if;
-        base_clock := resolveSubClock(parent_clock, info, clock_map);
-
-        // update the sub clock and add the new base clock
-        dest  := UnorderedMap.getSafe(parent_clock, info.subClocks, sourceInfo());
-        src   := UnorderedMap.getSafe(clock_name, info.subClocks, sourceInfo());
-        UnorderedMap.add(clock_name, BClock.updateSubClock(dest, src), info.subClocks);
-        UnorderedMap.add(clock_name, base_clock, info.subToBase);
-
-        // also update and add the implicit clock
-        if Util.isSome(implicit_clock_opt) then
-          SOME(implicit_clock) := implicit_clock_opt;
-          // add the implicit clock as a sub clock
-          UnorderedMap.add(implicit_clock, dest, info.subClocks);
-          UnorderedMap.add(implicit_clock, base_clock, info.subToBase);
-        end if;
-      end if;
+        else parent_clock;
+      end match;
     end resolveSubClock;
+
+    function updateSubToBaseClock
+      input ComponentRef clock_name;
+      input ComponentRef parent_clock;
+      input Option<ComponentRef> implicit_clock_opt;
+      input ClockedInfo info;
+      input UnorderedMap<ComponentRef, ComponentRef> clock_map;
+      output ComponentRef base_clock;
+    protected
+      BClock dest, src;
+      ComponentRef implicit_clock;
+    algorithm
+      base_clock := resolveSubClock(parent_clock, info, clock_map);
+
+      // update the sub clock and add the new base clock
+      dest  := UnorderedMap.getSafe(parent_clock, info.subClocks, sourceInfo());
+      src   := UnorderedMap.getSafe(clock_name, info.subClocks, sourceInfo());
+      UnorderedMap.add(clock_name, BClock.updateSubClock(dest, src), info.subClocks);
+      UnorderedMap.add(clock_name, base_clock, info.subToBase);
+
+      if Util.isSome(implicit_clock_opt) then
+        SOME(implicit_clock) := implicit_clock_opt;
+        // add the implicit clock as a sub clock
+        UnorderedMap.add(implicit_clock, dest, info.subClocks);
+        UnorderedMap.add(implicit_clock, base_clock, info.subToBase);
+      end if;
+    end updateSubToBaseClock;
 
     function addSubClock
       input ComponentRef clock_name;
@@ -683,10 +712,16 @@ protected
         Option<ComponentRef> clock_opt = Pointer.access(clock_ptr);
       algorithm
         exp := match (exp, clock_opt)
-          // already found clock, do nothing
-          case (_, SOME(_)) then exp;
+          local
+            ComponentRef clock;
 
-          case (Expression.CREF(), NONE()) guard(BVariable.isClockOrClocked(BVariable.getVarPointer(exp.cref, sourceInfo()))) algorithm
+          // already found non inferred clock, do nothing
+          case (_, SOME(clock)) guard(not BClock.isInferredClock(UnorderedMap.getSafe(clock, info.baseClocks, sourceInfo()))) algorithm
+          print("clock: " + ComponentRef.toString(clock) + " is not inferred\n");
+           then exp;
+
+          case (Expression.CREF(), _) guard(BVariable.isClockOrClocked(BVariable.getVarPointer(exp.cref, sourceInfo()))) algorithm
+            print("adding: " + ComponentRef.toString(exp.cref) + " as new clock\n");
             // add the clock cref
             Pointer.update(clock_ptr, SOME(exp.cref));
           then exp;
@@ -702,8 +737,10 @@ protected
       Option<ComponentRef> clock_opt = NONE();
       ComponentRef clock;
     algorithm
+      print("new partition\n");
       // search all equations until first clock/clocked signal is found
       for eqn_name in UnorderedSet.toList(cluster.eqn_idnts) loop
+        print("checking " + ComponentRef.toString(eqn_name) + "\n");
         Equation.map(Pointer.access(EquationPointers.getEqnByName(equations, eqn_name)), function findClock(info = info, clock_ptr = clock_ptr), NONE(), Expression.fakeMap);
         clock_opt := Pointer.access(clock_ptr);
         if Util.isSome(clock_opt) then break; end if;
@@ -986,6 +1023,8 @@ protected
     for cluster in UnorderedMap.valueList(cluster_map) loop
       Cluster.addToClockMap(cluster, equations, info, clock_map);
     end for;
+    print("clock_map: " + UnorderedMap.toString(clock_map, ComponentRef.toString, ComponentRef.toString) + "\n");
+    print("before resolution: " + ClockedInfo.toString(info) + "\n");
 
     // resolve inner sub clock dependencies
     ClockedInfo.resolveSubClocks(info, clock_map);

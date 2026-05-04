@@ -152,6 +152,8 @@ public
       ComponentRef name, base_name;
       BClock clock;
     algorithm
+      print("info: " + ClockedInfo.toString(info) + "\n");
+      print("checking:\n" + EquationPointers.toString(equations) + "\n");
       EquationPointers.mapExp(equations, function expClocked(
         info = info, clock_ptr = clock_ptr, infer_ptr = infer_ptr, failed_set = failed_set, clock_deps = clock_deps, infer_del = infer_del), NONE(), Expression.fakeMap);
 
@@ -161,6 +163,7 @@ public
 
       if Util.isSome(clock_tpl) then
         SOME((name, clock)) := clock_tpl;
+        print("name: " + ComponentRef.toString(name) + " clock: " + BClock.toString(clock) + "\n");
 
         // throw an error if there are different clocks in this partition
         if not UnorderedSet.isEmpty(failed_set) then
@@ -181,12 +184,14 @@ public
           end if;
           association := CLOCKED(clock, NONE(), clock_deps, false);
         else
-          base_name := UnorderedMap.getSafe(name, info.subToBase, sourceInfo());
+          //base_name := UnorderedMap.getSafe(name, info.subToBase, sourceInfo());
+          base_name   := findBaseClock(name, info);
           association := CLOCKED(clock, SOME(UnorderedMap.getSafe(base_name, info.baseClocks, sourceInfo())), clock_deps, false);
         end if;
       else
         association := CONTINUOUS(kind, NONE(), NONE(), NONE(), NONE(), NONE());
       end if;
+      print("ass: " + Association.toString(association) + "\n");
     end create;
 
     function merge
@@ -282,21 +287,25 @@ public
 
             // old sub clock and new base clock -> potentially update inferred base clock
             case (SOME(new as BClock.BASE_CLOCK()), SOME((name, old as BClock.SUB_CLOCK()))) algorithm
+              print("1 old sub " + BClock.toString(old) + " new:" + BClock.toString(new) + "\n");
               removeInferredClock(name, exp.cref, info, infer_del);
             then ();
 
             // old base clock getting updated to new sub clock
             case (SOME(new as BClock.SUB_CLOCK()), SOME((_, old as BClock.BASE_CLOCK()))) algorithm
+              print("2 old sub " + BClock.toString(old) + " new:" + BClock.toString(new) + "\n");
               Pointer.update(clock_ptr, SOME((exp.cref, new)));
             then ();
 
             // old base clock is inferred --> always take new clock
             case (SOME(new), SOME((_, old as BClock.BASE_CLOCK(clock = ClockKind.INFERRED_CLOCK())))) algorithm
+              print("3 old sub " + BClock.toString(old) + " new:" + BClock.toString(new) + "\n");
               Pointer.update(clock_ptr, SOME((exp.cref, new)));
             then ();
 
             // clocks -> equal: success / different: fail
             case (SOME(new), SOME((_, old))) algorithm
+              print("4 old sub " + BClock.toString(old) + " new:" + BClock.toString(new) + "\n");
               // if the old clock is inferred just override it
               if BClock.isInferredClock(old) then
                 Pointer.update(clock_ptr, SOME((exp.cref, new)));
@@ -307,6 +316,7 @@ public
 
             // new clock
             case (SOME(new), NONE()) algorithm
+              print("5 new:" + BClock.toString(new) + "\n");
               Pointer.update(clock_ptr, SOME((exp.cref, new)));
             then ();
 
@@ -353,6 +363,19 @@ public
         UnorderedSet.add(base_name, infer_del);
       end if;
     end removeInferredClock;
+
+    function findBaseClock
+      input ComponentRef name;
+      input ClockedInfo info;
+      output ComponentRef base_name = name;
+    protected
+      BClock base = BClock.INFERRED_CLOCK(ComponentRef.EMPTY());
+    algorithm
+      while BClock.isInferredClock(base) loop
+        base_name := UnorderedMap.getSafe(base_name, info.subToBase, sourceInfo());
+        base      := UnorderedMap.getSafe(base_name, info.baseClocks, sourceInfo());
+      end while;
+    end findBaseClock;
   end Association;
 
   uniontype Partition
