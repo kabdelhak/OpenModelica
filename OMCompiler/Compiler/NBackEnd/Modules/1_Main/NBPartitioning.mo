@@ -68,7 +68,7 @@ protected
   // Util
   import MetaModelica.Dangerous;
   import DoubleEnded;
-  import Rational;
+  import BRational;
   import UnorderedMap;
   import UnorderedSet;
 
@@ -83,8 +83,8 @@ public
     end BASE_CLOCK;
 
     record SUB_CLOCK
-      Rational factor;
-      Rational shift;
+      BRational factor;
+      BRational shift;
       Option<String> solver;
     end SUB_CLOCK;
 
@@ -98,7 +98,7 @@ public
     algorithm
     str := match clock
       case BASE_CLOCK()     then ClockKind.toDebugString(clock.clock);
-      case SUB_CLOCK()      then "SUB_CLOCK(" + Rational.toString(clock.factor) + ", " + Rational.toString(clock.shift) + ")";
+      case SUB_CLOCK()      then "SUB_CLOCK(" + BRational.toString(clock.factor) + ", " + BRational.toString(clock.shift) + ")";
       case INFERRED_CLOCK() then "INFERRED_CLOCK(" + ComponentRef.toString(clock.base_ref) + ")";
                             else "UNKNOWN_CLOCK()";
       end match;
@@ -116,7 +116,7 @@ public
     algorithm
       b := match (clock1, clock2)
         case (BASE_CLOCK(), BASE_CLOCK())         then ClockKind.compare(clock1.clock, clock2.clock) == 0;
-        case (SUB_CLOCK(), SUB_CLOCK())           then Rational.isEqual(clock1.factor, clock2.factor) and Rational.isEqual(clock1.shift, clock2.shift) and Util.optionEqual(clock1.solver, clock2.solver, stringEq);
+        case (SUB_CLOCK(), SUB_CLOCK())           then BRational.isEqual(clock1.factor, clock2.factor) and BRational.isEqual(clock1.shift, clock2.shift) and Util.optionEqual(clock1.solver, clock2.solver, stringEq);
         case (INFERRED_CLOCK(), INFERRED_CLOCK()) then ComponentRef.isEqual(clock1.base_ref, clock2.base_ref);
         else false;
       end match;
@@ -203,8 +203,8 @@ public
     algorithm
       oldClock := match clock
         case SUB_CLOCK() then OldBackendDAE.SUBCLOCK(
-          factor  = Rational.convert(clock.factor),
-          shift   = Rational.convert(clock.shift),
+          factor  = BRational.convert(clock.factor),
+          shift   = BRational.convert(clock.shift),
           solver  = clock.solver);
         else algorithm
           Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for non-sub clock: " + toString(clock)});
@@ -287,37 +287,37 @@ public
             // subclock: subset sampling
             case ("subSample", {e, Expression.INTEGER(i1)}) algorithm
               (subClock, baseClock) := fromExp(e);
-              subClock := updateSubClock(subClock, SUB_CLOCK(Rational.RATIONAL(i1, 1), Rational.RATIONAL(0, 1), NONE()));
+              subClock := updateSubClock(subClock, SUB_CLOCK(BRational.RATIONAL(i1, 1), BRational.RATIONAL(0, 1), NONE()));
             then (baseClock, subClock);
 
             // subclock: super sampling
             case ("superSample", {e, Expression.INTEGER(i1)}) algorithm
               (subClock, baseClock) := fromExp(e);
-              subClock := updateSubClock(subClock, SUB_CLOCK(Rational.RATIONAL(1, i1), Rational.RATIONAL(0, 1), NONE()));
+              subClock := updateSubClock(subClock, SUB_CLOCK(BRational.RATIONAL(1, i1), BRational.RATIONAL(0, 1), NONE()));
             then (baseClock, subClock);
 
             // subclock: shift sampling (default 3rd argument = 1)
             case ("shiftSample", {e, Expression.INTEGER(i1)}) algorithm
               (subClock, baseClock) := fromExp(e);
-              subClock := updateSubClock(subClock, SUB_CLOCK(Rational.RATIONAL(1, 1), Rational.RATIONAL(i1, 1), NONE()));
+              subClock := updateSubClock(subClock, SUB_CLOCK(BRational.RATIONAL(1, 1), BRational.RATIONAL(i1, 1), NONE()));
             then (baseClock, subClock);
 
             // subclock: shift sampling
             case ("shiftSample", {e, Expression.INTEGER(i1), Expression.INTEGER(i2)}) algorithm
               (subClock, baseClock) := fromExp(e);
-              subClock := updateSubClock(subClock, SUB_CLOCK(Rational.RATIONAL(1, 1), Rational.RATIONAL(i1, i2), NONE()));
+              subClock := updateSubClock(subClock, SUB_CLOCK(BRational.RATIONAL(1, 1), BRational.RATIONAL(i1, i2), NONE()));
             then (baseClock, subClock);
 
             // subclock: back sampling (default 3rd argument = 1)
             case ("backSample", {e, Expression.INTEGER(i1)}) algorithm
               (subClock, baseClock) := fromExp(e);
-              subClock := updateSubClock(subClock, SUB_CLOCK(Rational.RATIONAL(1, 1), Rational.RATIONAL(-i1, 1), NONE()));
+              subClock := updateSubClock(subClock, SUB_CLOCK(BRational.RATIONAL(1, 1), BRational.RATIONAL(-i1, 1), NONE()));
             then (baseClock, subClock);
 
             // subclock: back sampling
             case ("backSample", {e, Expression.INTEGER(i1), Expression.INTEGER(i2)}) algorithm
               (subClock, baseClock) := fromExp(e);
-              subClock := updateSubClock(subClock, SUB_CLOCK(Rational.RATIONAL(1, 1), Rational.RATIONAL(-i1, i2), NONE()));
+              subClock := updateSubClock(subClock, SUB_CLOCK(BRational.RATIONAL(1, 1), BRational.RATIONAL(-i1, i2), NONE()));
             then (baseClock, subClock);
 
             else algorithm
@@ -339,8 +339,8 @@ public
     algorithm
       dest := match (dest, src)
         case (SUB_CLOCK(), SUB_CLOCK()) algorithm
-          dest.shift  := Rational.add(dest.shift, Rational.mul(src.shift, dest.factor));
-          dest.factor := Rational.mul(dest.factor, src.factor);
+          dest.shift  := BRational.add(dest.shift, BRational.mul(src.shift, dest.factor));
+          dest.factor := BRational.mul(dest.factor, src.factor);
         then dest;
         else algorithm
           Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for " + toString(dest) + " and " + toString(src) + " because of incorrect clock types."});
@@ -350,7 +350,7 @@ public
   end BClock;
 
   constant BClock DEFAULT_BASE_CLOCK = BASE_CLOCK(ClockKind.REAL_CLOCK(Expression.REAL(1.0)));
-  constant BClock DEFAULT_SUB_CLOCK = SUB_CLOCK(Rational.RATIONAL(1, 1), Rational.RATIONAL(0, 1), NONE());
+  constant BClock DEFAULT_SUB_CLOCK = SUB_CLOCK(BRational.RATIONAL(1, 1), BRational.RATIONAL(0, 1), NONE());
   type CrefLst = list<ComponentRef>;
 
   uniontype ClockedInfo
