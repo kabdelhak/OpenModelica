@@ -682,7 +682,22 @@ protected
       protected
         Option<ComponentRef> clock_opt = Pointer.access(clock_ptr);
       algorithm
+        print("checking " + Expression.toString(exp) + "\n");
         exp := match (exp, clock_opt)
+          local
+            ComponentRef clock_name;
+            BClock clock;
+          case (_, SOME(clock_name)) algorithm
+            exp := match UnorderedMap.get(clock_name, info.baseClocks)
+              case SOME(clock) guard(BClock.isInferredClock(clock)) algorithm
+                print("inf clock " + ComponentRef.toString(clock_name) + " c " + BClock.toString(clock) + "\n");
+                print("new clock " + Expression.toString(exp) + "\n");
+              then exp;
+              else exp;
+            end match;
+            //
+          then exp;
+
           // already found clock, do nothing
           case (_, SOME(_)) then exp;
 
@@ -692,7 +707,9 @@ protected
           then exp;
 
           // do nothing on clock sampling functions as they do not imply a clock for this cluster
-          case (Expression.CALL(), _) guard(Expression.isClockOrSampleFunction(exp)) then exp;
+          case (Expression.CALL(), _) guard(Expression.isClockOrSampleFunction(exp)) algorithm
+            print("not looking at " + Expression.toString(exp) + "\n");
+          then exp;
 
           // go deeper
           else Expression.mapShallow(exp, function findClock(info = info, clock_ptr = clock_ptr));
@@ -702,8 +719,10 @@ protected
       Option<ComponentRef> clock_opt = NONE();
       ComponentRef clock;
     algorithm
+      print("NEW CLUSTER\n");
       // search all equations until first clock/clocked signal is found
       for eqn_name in UnorderedSet.toList(cluster.eqn_idnts) loop
+        print(Equation.pointerToString(EquationPointers.getEqnByName(equations, eqn_name)) + "\n");
         Equation.map(Pointer.access(EquationPointers.getEqnByName(equations, eqn_name)), function findClock(info = info, clock_ptr = clock_ptr), NONE(), Expression.fakeMap);
         clock_opt := Pointer.access(clock_ptr);
         if Util.isSome(clock_opt) then break; end if;
@@ -986,6 +1005,9 @@ protected
     for cluster in UnorderedMap.valueList(cluster_map) loop
       Cluster.addToClockMap(cluster, equations, info, clock_map);
     end for;
+
+    print("map: " + UnorderedMap.toString(clock_map, ComponentRef.toString, ComponentRef.toString) + "\n");
+    print("info: "  + ClockedInfo.toString(info) + "\n");
 
     // resolve inner sub clock dependencies
     ClockedInfo.resolveSubClocks(info, clock_map);
