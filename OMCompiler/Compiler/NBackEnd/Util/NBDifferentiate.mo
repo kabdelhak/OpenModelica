@@ -928,6 +928,15 @@ public
         res     := Expression.fromCref(derCref);
       then (res, diffArguments);
 
+      case (Expression.CREF(), DifferentiationType.TIME, SOME(diff_map))
+        guard(checkStateDerivativeStateOrder(exp.cref, diff_map)) algorithm
+        // get the state to the derivative, the associated derivative cref 
+        // and differentiate that instead to avoid $DER stacking
+        derCref := getStateDerivativeStateOrder(exp.cref, diff_map);
+        derCref := ComponentRef.copySubscripts(exp.cref, derCref);
+        (res, diffArguments) := differentiateComponentRef(Expression.CREF(exp.ty, derCref), diffArguments);
+      then (res, diffArguments);
+
       // Types: (TIME)
       // DUMMY_STATES => DUMMY_DER
       case (Expression.CREF(), DifferentiationType.TIME, _)
@@ -948,7 +957,7 @@ public
       case (Expression.CREF(), DifferentiationType.TIME, _)
         guard(BVariable.isContinuous(var_ptr, false))
         algorithm
-          // create derivative
+          // create derivative  ComponentRef.stripSubscriptsAll(exp.cref)
           (derCref, der_ptr) := BVariable.makeDerVar(exp.cref);
           // add derivative to new_vars
           diffArguments.new_vars := der_ptr :: diffArguments.new_vars;
@@ -1040,6 +1049,33 @@ public
 
     end match;
   end differentiateComponentRef;
+
+  function checkStateDerivativeStateOrder
+    input ComponentRef cref;
+    input UnorderedMap<ComponentRef,ComponentRef> diff_map;
+    output Boolean b = false;
+  protected
+    Option<Pointer<Variable>> state = BVariable.getVarState(BVariable.getVarPointer(cref, sourceInfo()));
+//    Option<ComponentRef> state_der;
+  algorithm
+    if Util.isSome(state) then
+      b := UnorderedMap.contains(BVariable.getVarName(Util.getOption(state)), diff_map);
+      //cref := Util.getOptionOrDefault(state_der, cref);
+    end if;
+  end checkStateDerivativeStateOrder;
+
+  function getStateDerivativeStateOrder
+    input output ComponentRef cref;
+    input UnorderedMap<ComponentRef,ComponentRef> diff_map;
+  protected
+    Option<Pointer<Variable>> state = BVariable.getVarState(BVariable.getVarPointer(cref, sourceInfo()));
+    Option<ComponentRef> state_der;
+  algorithm
+    if Util.isSome(state) then
+      state_der := UnorderedMap.get(BVariable.getVarName(Util.getOption(state)), diff_map);
+      cref := Util.getOptionOrDefault(state_der, cref);
+    end if;
+  end getStateDerivativeStateOrder;
 
   function differentiateComponentRefNoCollect
     input output Expression exp;
