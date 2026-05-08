@@ -513,6 +513,7 @@ public
       (zeroCrossings, relations, timeEvents) := EventInfo.convert(simCode.eventInfo, simCode.equation_map);
 
       (varToArrayIndexMapping, varToIndexMapping) := OldSimCodeUtil.createVarToArrayIndexMapping(modelInfo);
+      BaseHashTable.dumpHashTable(varToArrayIndexMapping);
       crefToSimVarHT := SimCodeUtil.convertSimCodeMap(simCode.simcode_map);
       // do we still need the following for DAE mode?
       if isSome(simCode.daeModeData) then

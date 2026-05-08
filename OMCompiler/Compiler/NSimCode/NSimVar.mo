@@ -298,6 +298,11 @@ public
       end try;
     end getIndex;
 
+    function getArrayCrefOpt
+      input SimVar var;
+      output Option<ComponentRef> arrayCref = var.arrayCref;
+    end getArrayCrefOpt;
+
     function shiftIndex
       "Shift index by some value. Used to append `enumVars` onto `intVars`."
       input output SimVar var;

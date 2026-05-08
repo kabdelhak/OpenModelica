@@ -90,15 +90,24 @@ public
     addListSimCodeMap(simVars.dataReconinputVars, simcode_map);
     addListSimCodeMap(simVars.dataReconSetBVars, simcode_map);
     addListSimCodeMap(extObjInfo.objects, simcode_map);
+
+    print("map: " + UnorderedMap.toString(simcode_map, ComponentRef.toString, function SimVar.toString(str = "")) + "\n");
   end createSimCodeMap;
 
   function addListSimCodeMap
     input list<SimVar> simVars;
     input output UnorderedMap<ComponentRef, SimVar> simcode_map;
+  protected
+    Option<ComponentRef> arrayCref;
   algorithm
     // TODO write function UnorderedMap.addList to avoid rehashes
     for var in simVars loop
       UnorderedMap.add(SimVar.getName(var), var, simcode_map);
+      // add the array cref too. only needed for C++ as var==var.arrayCref for the first element in the array for C
+      arrayCref := SimVar.getArrayCrefOpt(var);
+      if Util.isSome(arrayCref) then
+        UnorderedMap.add(ComponentRef.stripSubscriptsAll(Util.getOption(arrayCref)), var, simcode_map);
+      end if;
     end for;
   end addListSimCodeMap;
 
@@ -110,6 +119,8 @@ public
   algorithm
     old_ht := HashTableCrefSimVar.emptyHashTableSized(UnorderedMap.size(simcode_map));
     old_ht := List.fold(SimVar.convertList(vars), HashTableCrefSimVar.addSimVarToHashTable, old_ht);
+    BaseHashTable.dumpHashTable(old_ht);
+
   end convertSimCodeMap;
 
 annotation(__OpenModelica_Interface="backend");

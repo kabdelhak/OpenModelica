@@ -9948,6 +9948,8 @@ algorithm
   else
     Error.addInternalError("function createCrefToSimVarHT failed", sourceInfo());
   end try;
+
+  BaseHashTable.dumpHashTable(outHT);
 end createCrefToSimVarHT;
 
 protected function getArraySimVars "author: marcusw
@@ -12318,6 +12320,8 @@ algorithm
     (currentVarIndices, oVarToArrayIndexMapping, oVarToIndexMapping) :=
       addVarToArrayIndexMappings(var_lst, var_type, currentVarIndices, oVarToArrayIndexMapping, oVarToIndexMapping);
   end for;
+
+  BaseHashTable.dumpHashTable(oVarToArrayIndexMapping);
 end createVarToArrayIndexMapping;
 
 public function addVarToArrayIndexMappings
