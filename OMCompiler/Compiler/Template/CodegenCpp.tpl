@@ -4125,6 +4125,7 @@ template functionExtraResidualsPreBody(SimEqSystem eq, Text &varDecls, Context c
 ::=
   match eq
   case e as SES_RESIDUAL(__)
+  case e as SES_FOR_RESIDUAL(__)
   then ""
   else
   equation_(eq, context, &varDecls, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
@@ -9875,6 +9876,14 @@ template equation_function_create_single_body(SimEqSystem eq, Context context, S
       equationForEquation(e, context, &varDeclsLocal, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace,
                           additionalFuncs, method, classnameext, stateDerVectorName, useFlatArrayNotation,
                           createMeasureTime, assignToStartValues, overwriteOldStartValue, varDeclsLocal)
+
+    case e as SES_GENERIC_ASSIGN(__)
+    case e as SES_RESIZABLE_ASSIGN(__)
+      then
+      equationGenericAssign(e, context, &varDeclsLocal, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace,
+                          additionalFuncs, method, classnameext, stateDerVectorName, useFlatArrayNotation,
+                          createMeasureTime, assignToStartValues, overwriteOldStartValue, varDeclsLocal)
+
     case e as SES_ALIAS(__)
       then
       /* should call alias; duplicate equation code for now
@@ -11536,6 +11545,31 @@ template equationForEquation(SimEqSystem eq, Context context, Text &varDecls, Si
       >>
 end equationForEquation;
 
+template equationGenericAssign(SimEqSystem eq, Context context, Text &varDecls, SimCode simCode, Text &extraFuncs, Text &extraFuncsDecl, Text extraFuncsNamespace,
+                             Text& additionalFuncs, Text method,Text classnameext, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation,
+                             Boolean createMeasureTime, Boolean assignToStartValues, Boolean overwriteOldStartValue, Text &varDeclsLocal)
+                             //SimEqSystem eq, Context context, Text &varDecls, Text &auxFunction, String modelNamePrefix)
+ "Generate a call for a generic for-loop structure with an index-list."
+::=
+  let jac = match context case JACOBIAN_CONTEXT() then ", jacobian" else ""
+  let sub_name = match context case JACOBIAN_CONTEXT() then "jac_" else ""
+<<
+<%modelicaLine(eqInfo(eq))%>
+<%match eq
+case eqn as SES_RESIZABLE_ASSIGN() then
+  <<
+  /* resizable */
+  >>
+case eqn as SES_GENERIC_ASSIGN() then
+  <<
+  /* generic */
+  >>
+%>
+<%endModelicaLine()%>
+>>
+end equationGenericAssign;
+
+
 // Previously unknown dims were set to ICONST(-1) at SimCode creation
 // we do not do that anymore.
 // This used to return '' for ICONST no matter the value. I am not sure
@@ -12296,9 +12330,13 @@ end giveZeroFunc2;
 
 template giveZeroFunc3(Integer index1, Exp relation, Text &varDecls /*BUFP*/,Text &preExp ,SimCode simCode ,Text& extraFuncs,Text& extraFuncsDecl,Text extraFuncsNamespace, Text stateDerVectorName /*=__zDot*/, Boolean useFlatArrayNotation)
 ::=
-
   match relation
-  case rel as  RELATION(index=zerocrossingIndex) then
+  case rel as LBINARY() then
+    //let rel1 = giveZeroFunc3(index1, exp1, &varDecls, &preExp, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
+    //let rel2 = giveZeroFunc3(index1, exp2, &varDecls, &preExp, simCode, &extraFuncs, &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
+    <<
+    >>
+  case rel as RELATION(index=zerocrossingIndex) then
       let e1 = daeExp(exp1, contextOther, &preExp /*BUFC*/, &varDecls /*BUFD*/,simCode , &extraFuncs , &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
       let e2 = daeExp(exp2, contextOther, &preExp /*BUFC*/, &varDecls /*BUFD*/,simCode , &extraFuncs , &extraFuncsDecl, extraFuncsNamespace, stateDerVectorName, useFlatArrayNotation)
       match rel.operator
