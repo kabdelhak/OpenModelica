@@ -4771,25 +4771,27 @@ public
     algorithm
       eqData := match eqData
         case EqData.EQ_DATA_SIM() algorithm
-          // we do not want to traverse removed equations, otherwise we could break them
           eqData.simulation   := EquationPointers.map(eqData.simulation, func);
           eqData.continuous   := EquationPointers.map(eqData.continuous, func);
           eqData.clocked      := EquationPointers.map(eqData.clocked, func);
           eqData.discretes    := EquationPointers.map(eqData.discretes, func);
           eqData.initials     := EquationPointers.map(eqData.initials, func);
           eqData.auxiliaries  := EquationPointers.map(eqData.auxiliaries, func);
+          eqData.removed      := EquationPointers.map(eqData.removed, func);
         then eqData;
 
         case EqData.EQ_DATA_JAC() algorithm
           eqData.results      := EquationPointers.map(eqData.results, func);
           eqData.temporary    := EquationPointers.map(eqData.temporary, func);
           eqData.auxiliaries  := EquationPointers.map(eqData.auxiliaries, func);
+          eqData.removed      := EquationPointers.map(eqData.removed, func);
         then eqData;
 
         case EqData.EQ_DATA_HES() algorithm
           Pointer.update(eqData.result, func(Pointer.access(eqData.result)));
           eqData.temporary    := EquationPointers.map(eqData.temporary, func);
           eqData.auxiliaries  := EquationPointers.map(eqData.auxiliaries, func);
+          eqData.removed      := EquationPointers.map(eqData.removed, func);
         then eqData;
       end match;
     end map;
@@ -4800,7 +4802,6 @@ public
     algorithm
       eqData := match eqData
         case EqData.EQ_DATA_SIM() algorithm
-          // we do not want to traverse removed equations, otherwise we could break them
           eqData.simulation   := EquationPointers.mapExp(eqData.simulation, func);
           eqData.continuous   := EquationPointers.mapExp(eqData.continuous, func);
           eqData.clocked      := EquationPointers.mapExp(eqData.clocked, func);

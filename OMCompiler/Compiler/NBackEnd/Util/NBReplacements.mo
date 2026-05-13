@@ -69,7 +69,7 @@ protected
 
   // Backend imports
   import BVariable = NBVariable;
-  import NBEquation.{EqData, Equation, EquationPointers};
+  import NBEquation.{EqData, Equation, EquationPointers, WhenEquationBody, WhenStatement};
   import Inline = NBInline;
   import Slice = NBSlice;
   import Solve = NBSolve;
@@ -311,8 +311,42 @@ public
   algorithm
     // do nothing if replacements are empty
     if UnorderedMap.isEmpty(replacements) then return; end if;
-    eqData := EqData.mapExp(eqData, function applyFuncExp(replacements = replacements, prev_replacements = prev_replacements, variables = variables));
+    eqData := EqData.map(eqData, function applyFuncEqn(replacements = replacements, prev_replacements = prev_replacements, variables = variables));
   end replaceFunctions;
+
+  function applyFuncEqn
+    input output Equation eqn;
+    input UnorderedMap<Absyn.Path, Function> replacements         "rules for replacements are stored inside here";
+    input UnorderedMap<Expression, Expression> prev_replacements  "previously found replacements that need not be done again";
+    input VariablePointers variables;
+  protected
+    Boolean isWhenCondition;
+  algorithm
+    eqn := match eqn
+      case Equation.WHEN_EQUATION() algorithm
+        eqn.body := Util.getOption(applyFuncWhenEqnBody(SOME(eqn.body), replacements, prev_replacements, variables));
+      then eqn;
+      else Equation.map(eqn, function applyFuncExp(replacements = replacements, prev_replacements = prev_replacements, variables = variables, whenCond = false));
+    end match;
+  end applyFuncEqn;
+
+  function applyFuncWhenEqnBody
+    input output Option<WhenEquationBody> body_opt;
+    input UnorderedMap<Absyn.Path, Function> replacements         "rules for replacements are stored inside here";
+    input UnorderedMap<Expression, Expression> prev_replacements  "previously found replacements that need not be done again";
+    input VariablePointers variables;
+  algorithm
+    body_opt := match body_opt
+      local
+        WhenEquationBody body;
+      case SOME(body) algorithm
+        body.condition  := Expression.map(body.condition, function applyFuncExp(replacements = replacements, prev_replacements = prev_replacements, variables = variables, whenCond = true));
+        body.when_stmts := List.map(body.when_stmts, function WhenStatement.map(funcExp = function applyFuncExp(replacements = replacements, prev_replacements = prev_replacements, variables = variables, whenCond = false), funcCrefOpt = NONE(), mapFunc = Expression.map));
+        body.else_when  := applyFuncWhenEqnBody(body.else_when, replacements, prev_replacements, variables);
+      then SOME(body);
+      else body_opt;
+    end match;
+  end applyFuncWhenEqnBody;
 
   function applyFuncExp
     "Needs to be mapped with Expression.map()"
@@ -320,6 +354,7 @@ public
     input UnorderedMap<Absyn.Path, Function> replacements         "rules for replacements are stored inside here";
     input UnorderedMap<Expression, Expression> prev_replacements  "previously found replacements that need not be done again";
     input VariablePointers variables;
+    input Boolean whenCond;
   algorithm
     exp := match exp
       local
@@ -375,10 +410,10 @@ public
             body_exp := SimplifyExp.simplifyDump(body_exp, true, getInstanceName());
 
             // replace body with possible nested functions
-            res_exp := Expression.map(body_exp, function applyFuncExp(replacements = replacements, prev_replacements = prev_replacements, variables = variables));
+            res_exp := Expression.map(body_exp, function applyFuncExp(replacements = replacements, prev_replacements = prev_replacements, variables = variables, whenCond = false));
 
             // wrap all event triggering expressions in noEvent() if the function is not supposed to trigger events
-            if not fn.attributes.generateEvents then
+            if not (whenCond or fn.attributes.generateEvents) then
               res_exp := Expression.fakeMap(res_exp, wrapEvents);
             end if;
 
