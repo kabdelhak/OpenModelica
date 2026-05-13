@@ -233,13 +233,15 @@ protected
     VariablePointers variables = VarData.getVariables(varData);
     Absyn.Path key;
     Function value;
+    DAE.InlineType it;
   algorithm
     // collect functions
     replacements := UnorderedMap.new<Function>(AbsynUtil.pathHash, AbsynUtil.pathEqual);
     for tpl in UnorderedMap.toList(funcMap) loop
       (key, value) := tpl;
+      it := Function.inlineBuiltin(value);
       // only add to the map if the function has one of the inline types and is inlineable
-      if List.contains(inline_types, Function.inlineBuiltin(value), DAEUtil.inlineTypeEqual) and functionInlineable(value) then
+      if (List.contains(inline_types, it, DAEUtil.inlineTypeEqual) or checkDefault(it, value)) and functionInlineable(value) then
         UnorderedMap.add(key, value, replacements);
       end if;
     end for;
