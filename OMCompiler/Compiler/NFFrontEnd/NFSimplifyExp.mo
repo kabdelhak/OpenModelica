@@ -276,6 +276,7 @@ algorithm
     case "product"          then simplifySumProduct(listHead(args), call, expand, isSum = false);
     case "sum"              then simplifySumProduct(listHead(args), call, expand, isSum = true);
     case "transpose"        then simplifyTranspose(listHead(args), call, expand);
+    case "promote"          then simplifyPromote(listHead(args), call, expand);
     case "vector"           then simplifyVector(listHead(args), call);
     case "zeros"            then simplifyFill(Expression.INTEGER(0), args, call, expand);
     case "semiLinear"       then simplifySemiLinear(args, call);
@@ -522,6 +523,19 @@ algorithm
     else Expression.CALL(call);
   end match;
 end simplifyTranspose;
+
+function simplifyPromote
+  input list<Expression> args;
+  input output Expression exp;
+protected
+  Expression arg, dim;
+algorithm
+  arg :: dim := args;
+  if Expression.isZero(arg) then
+  
+    exp := Expression.CALL(Call.makeTypedCall(NFBuiltinFuncs.FILL_FUNC, ty_args, variability, purity, ty));
+  end if;
+end simplifyPromote;
 
 function simplifyVector
   input Expression arg;
