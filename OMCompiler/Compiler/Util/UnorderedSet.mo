@@ -109,11 +109,15 @@ public
     );
   end copy;
 
+  partial function add_interface
+    input T key;
+    input UnorderedSet<T> set;
+  end add_interface;
+
   function add
     "Adds a key to the set unless the key already exists in the set, in which
      case nothing is done. Might trigger a rehash."
-    input T key;
-    input UnorderedSet<T> set;
+    extends add_interface;
   protected
     Integer hash;
     Option<T> okey;
@@ -130,8 +134,7 @@ public
      add since it doesn't need to check if the key exists, but will lead to
      duplicate keys if it actually does exist in the set already. Might trigger
      a rehash."
-    input T key;
-    input UnorderedSet<T> set;
+    extends add_interface;
   protected
     Hash hashfn = set.hashFn;
     Integer hash;
@@ -143,14 +146,23 @@ public
   function addUnique
     "Adds a key to the set, but fails if the key already exists.
      Might trigger a rehash."
-    input T key;
-    input UnorderedSet<T> set;
+    extends add_interface;
   protected
     Integer hash;
   algorithm
     (NONE(), hash) := find(key, set);
     addKey(key, hash, set);
   end addUnique;
+
+  function addList
+    input list<T> lst;
+    input UnorderedSet<T> set;
+    input add_interface add_func = add;
+  algorithm
+    for elem in lst loop
+      add_func(elem, set);
+    end for;
+  end addList;
 
   function remove
     "Removes a key from the set. Returns true if the key existed in the set and

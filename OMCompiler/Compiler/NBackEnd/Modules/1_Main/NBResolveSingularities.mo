@@ -52,7 +52,7 @@ protected
   import Adjacency = NBAdjacency;
   import NBFunctionAlias.Call_Aux;
   import Differentiate = NBDifferentiate;
-  import NBEquation.{Equation, EqData, EquationPointer, EquationPointers, SlicingStatus, Iterator};
+  import NBEquation.{Equation, EqData, EquationPointer, EquationPointers, SlicingStatus, Iterator, Frame};
   import Initialization = NBInitialization;
   import Matching = NBMatching;
   import Variable = NFVariable;
@@ -129,7 +129,8 @@ public
 
     // slice handling
     type SliceSet = UnorderedSet<Integer>;
-    UnorderedMap<ComponentRef, SliceSet> slice_map = UnorderedMap.new<SliceSet>(ComponentRef.hash, ComponentRef.isEqual);
+    UnorderedMap<ComponentRef, SliceSet> slice_map_eqn = UnorderedMap.new<SliceSet>(ComponentRef.hash, ComponentRef.isEqual);
+    UnorderedMap<VariablePointer, SliceSet> slice_map_var;
     UnorderedSet<ComponentRef> dummy_slice_set = UnorderedSet.new(ComponentRef.hash, ComponentRef.isEqual) "dummy variables to fill unslicable equations";
 
     Boolean debug = false;
@@ -166,10 +167,10 @@ public
       // state candidates and constraint equations are lists of slices
       // adjacency matrix and arrays are only full based
       // slice them before matching
-      (constraint_ptrs, candidate_ptrs, constraint_eqns) := getConstraintsAndCandidates(equations, marked_eqns, mapping);
+      (constraint_ptrs, candidate_ptrs, constraint_eqns, slice_map_var) := getConstraintsAndCandidates(equations, marked_eqns, mapping);
 
       for eq in constraint_eqns loop
-        UnorderedMap.add(Equation.getEqnName(Slice.getT(eq)), UnorderedSet.fromList(eq.indices, Util.id, intEq), slice_map);
+        UnorderedMap.add(Equation.getEqnName(Slice.getT(eq)), UnorderedSet.fromList(eq.indices, Util.id, intEq), slice_map_eqn);
       end for;
 
       if VariablePointers.scalarSize(candidate_ptrs) < sum(Slice.size(eq, function Equation.size(resize = true)) for eq in constraint_eqns) then
@@ -242,7 +243,7 @@ public
 
       // parse the result of the matching
       (dummy_states, states, matched_eqns, unmatched_eqns) := Matching.getMatches(set_matching, Adjacency.Matrix.getMappingOpt(set_adj), candidate_ptrs, constraint_ptrs);
-      unmatched_eqns := resolveSlicedUnmatched(unmatched_eqns, slice_map);
+      unmatched_eqns := resolveSlicedUnmatched(unmatched_eqns, slice_map_eqn);
 
       // Build differentiation argument structure
       diffArguments           := Differentiate.DifferentiationArguments.default(NBDifferentiate.DifferentiationType.TIME, funcMap);
@@ -256,7 +257,7 @@ public
       // differentiate all eqns
       for constraint in EquationPointers.toList(constraint_ptrs) loop
         diffed_eqn := Differentiate.differentiateEquationPointer(constraint, diffArguments_ptr);
-        diffed_eqn := removeSlicedDerivatives(diffed_eqn, UnorderedMap.getSafe(Equation.getEqnName(constraint), slice_map, sourceInfo()), dummy_slice_set, VarData.getUniqueIndex(varData));
+        diffed_eqn := removeSlicedDerivatives(diffed_eqn, UnorderedMap.getSafe(Equation.getEqnName(constraint), slice_map_eqn, sourceInfo()), dummy_slice_set, VarData.getUniqueIndex(varData));
         new_eqns := diffed_eqn :: new_eqns;
         if Flags.isSet(Flags.DUMMY_SELECT) then
           print("[dummyselect] constraint eqn:\t\t" + Equation.toString(Pointer.access(constraint)) + "\n");
@@ -270,7 +271,8 @@ public
       // --------------------------------------------------------
       // for both static and dynamic state selection all matched states are regarded dummys
       for dummy in dummy_states loop
-        if listEmpty(dummy.indices) then
+        // full coverage or full slice coverage
+        if listEmpty(dummy.indices) or listLength(dummy.indices) == UnorderedSet.size(UnorderedMap.getSafe(Slice.getT(dummy), slice_map_var, sourceInfo())) then
           dummy_derivatives := BVariable.makeDummyState(Slice.getT(dummy)) :: dummy_derivatives;
         else
           sliced_dummies := dummy :: sliced_dummies;
@@ -589,12 +591,15 @@ protected
     output EquationPointers constr = EquationPointers.empty();
     output VariablePointers states = VariablePointers.empty();
     output list<Slice<EquationPointer>> sliced_constr = {};
+    output UnorderedMap<VariablePointer, Slice.IntSet> state_candidates = UnorderedMap.new<Slice.IntSet>(BVariable.hash, BVariable.equalName);
   protected
     UnorderedSet<Integer> eqn_indices = UnorderedSet.new(Util.id, intEq);
     array<list<Integer>> eqn_slices = arrayCreate(EquationPointers.size(equations), {});
-    UnorderedSet<ComponentRef> state_candidates = UnorderedSet.new(ComponentRef.hash, ComponentRef.isEqual);
     Pointer<Equation> eqn_ptr;
     Pointer<Variable> var_ptr;
+    list<Frame> frames;
+    list<Integer> indices;
+    Option<UnorderedSet<Integer>> set_opt;
   algorithm
     // collect all relevant constraint equations
     for eqn in marked_eqns loop
@@ -607,16 +612,22 @@ protected
     for eqn in UnorderedSet.toList(eqn_indices) loop
       eqn_ptr := EquationPointers.getEqnAt(equations, eqn);
       constr  := EquationPointers.add(eqn_ptr, constr);
+      frames  := Equation.getForFrames(Pointer.access(eqn_ptr));
       sliced_constr := Slice.SLICE(eqn_ptr, eqn_slices[eqn]) :: sliced_constr;
       for candidate in Equation.collectCrefs(Pointer.access(eqn_ptr), getStateCandidate) loop
-        UnorderedSet.add(candidate, state_candidates);
+        var_ptr := BVariable.getVarPointer(candidate, sourceInfo());
+        indices := Slice.getCrefInFrameIndicesLocal(candidate, ComponentRef.stripSubscriptsAll(candidate), frames, 0, true);
+        set_opt := UnorderedMap.get(var_ptr, state_candidates);
+        // add all state candidates to the array
+        if isSome(set_opt) then
+          // just update the mutable set inside the map
+          UnorderedSet.addList(indices, Util.getOption(set_opt));
+        else
+          // create a new set and add it to the map. also add the new state variable
+          UnorderedMap.add(var_ptr, UnorderedSet.fromList(indices, Util.id, intEq), state_candidates);
+          states  := VariablePointers.add(var_ptr, states);
+        end if;
       end for;
-    end for;
-
-    // add all state candidates to the array
-    for candidate in UnorderedSet.toList(state_candidates) loop
-      var_ptr := BVariable.getVarPointer(candidate, sourceInfo());
-      states  := VariablePointers.add(var_ptr, states);
     end for;
   end getConstraintsAndCandidates;
 
@@ -684,15 +695,15 @@ protected
     "removes all the unmatched slices that are irrelevant"
     input list<Slice<EquationPointer>> old_unmatched;
     output list<Slice<EquationPointer>> filtered_unmatched = {};
-    input UnorderedMap<ComponentRef, UnorderedSet<Integer>> slice_map;
+    input UnorderedMap<ComponentRef, UnorderedSet<Integer>> slice_map_eqn;
     function resolveSlicedUnmatchedSingle
       input Slice<EquationPointer> eq;
       input output list<Slice<EquationPointer>> acc;
-      input UnorderedMap<ComponentRef, UnorderedSet<Integer>> slice_map;
+      input UnorderedMap<ComponentRef, UnorderedSet<Integer>> slice_map_eqn;
     protected
       UnorderedSet<Integer> relevant_indices;
     algorithm
-      relevant_indices := UnorderedMap.getSafe(Equation.getEqnName(Slice.getT(eq)), slice_map, sourceInfo());
+      relevant_indices := UnorderedMap.getSafe(Equation.getEqnName(Slice.getT(eq)), slice_map_eqn, sourceInfo());
       // empty set indicates everything is relevant (just like slices without indices indicate everything)
       if UnorderedSet.isEmpty(relevant_indices) then
         // case 1.
@@ -706,7 +717,7 @@ protected
     end resolveSlicedUnmatchedSingle;
   algorithm
     for eq in old_unmatched loop
-      filtered_unmatched := resolveSlicedUnmatchedSingle(eq, filtered_unmatched, slice_map);
+      filtered_unmatched := resolveSlicedUnmatchedSingle(eq, filtered_unmatched, slice_map_eqn);
     end for;
   end resolveSlicedUnmatched;
 
@@ -766,6 +777,39 @@ protected
         else eqn;
       end match;
   end removeSlicedDerivateEqn;
+
+  function resolveSlicedDummy
+    input Slice<VariablePointer> dummy;
+    input UnorderedMap<VariablePointer, Slice.IntSet> map;
+    input UnorderedSet<VariablePointer> new_vars;
+    output Option<VariablePointer> new_var;
+  protected
+    Pointer<Variable> var_ptr = Slice.getT(dummy);
+  algorithm
+    // case I full coverage
+    // just make it a dummy state
+
+    // case II slice length is equal to slice set
+    // make it a dummy state
+    // a) create artificial equations for the new variables
+    // --> save which slice is solved in the equation?
+    // b) create alias variable for the sliced derivatives
+    // --> mutliple issues when differentiating again
+
+    // case III slice length is not equal
+    // implies that there is a slice here that stays a state
+    // state alias is needed
+
+
+    // full coverage or full slice coverage
+    if listEmpty(dummy.indices) or listLength(dummy.indices) == UnorderedSet.size(UnorderedMap.getSafe(Slice.getT(dummy), slice_map_var, sourceInfo())) then
+      dummy_derivatives := BVariable.makeDummyState(Slice.getT(dummy)) :: dummy_derivatives;
+    else
+      sliced_dummies := dummy :: sliced_dummies;
+    end if;
+    if UnorderedSet.contains(var_ptr, new_vars) then
+    end if;
+  end resolveSlicedDummy;
 
   function toStringCandidatesConstraints
     input list<Slice<VariablePointer>> state_candidates;

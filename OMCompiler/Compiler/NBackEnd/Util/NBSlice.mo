@@ -69,6 +69,7 @@ protected
 
 public
   type IntLst = list<Integer>;
+  type IntSet = UnorderedSet<Integer>;
 
   record SLICE
     T t;
