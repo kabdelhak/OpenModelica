@@ -1928,8 +1928,8 @@ public
 
       // reduce the dependency and remove skips for these
       case Expression.SUBSCRIPTED_EXP() algorithm
-        set := collectDependenciesSubs(exp.subscripts, depth, kind, map, dep_map, sol_map, rep_set);
-        set := UnorderedSet.union(set, collectDependencies(exp.exp, depth, kind, map, dep_map, sol_map, rep_set));
+        //set := collectDependenciesSubs(exp.subscripts, depth, kind, map, dep_map, sol_map, rep_set);
+        set := collectDependencies(exp.exp, depth, kind, map, dep_map, sol_map, rep_set);
         Dependency.updateList(UnorderedSet.toList(set), listLength(exp.subscripts), true, dep_map);
         Dependency.removeSkipsList(UnorderedSet.toList(set), dep_map);
       then set;
@@ -2128,17 +2128,16 @@ public
     input UnorderedSet<ComponentRef> rep_set;
     input Boolean doSubscripts = true;
     output UnorderedSet<ComponentRef> set;
+    //output list<ComponentRef> crefs;
   protected
     Pointer<Variable> var;
     list<ComponentRef> crefs;
+    //UnorderedSet<ComponentRef> set;
     Integer sk = 1;
     list<Subscript> subs = ComponentRef.subscriptsAllFlat(cref);
   algorithm
-    if doSubscripts then
-      set := collectDependenciesSubs(subs, depth, kind, map, dep_map, sol_map, rep_set);
-    else
-      set := UnorderedSet.new(ComponentRef.hash, ComponentRef.isEqual);
-    end if;
+
+    set := UnorderedSet.new(ComponentRef.hash, ComponentRef.isEqual);
 
     if UnorderedMap.contains(cref, map) then
       if not UnorderedMap.contains(cref, dep_map) then
@@ -2146,6 +2145,7 @@ public
       end if;
       Solvability.update(cref, Solvability.EXPLICIT_LINEAR(NONE(), NONE()), sol_map);
       UnorderedSet.add(cref, set);
+      crefs := {cref};
     else
       var := BVariable.getVarPointer(cref, sourceInfo());
       if BVariable.isRecord(var) then
@@ -2160,8 +2160,12 @@ public
           Dependency.skip(cref, depth + 1, sk, dep_map);
           sk := sk + 1;
         end for;
+      else
+        crefs := {};
       end if;
     end if;
+
+    set := UnorderedSet.fromList(crefs, ComponentRef.hash, ComponentRef.isEqual);
   end collectDependenciesCref;
 
   function addRepetitionsCond
