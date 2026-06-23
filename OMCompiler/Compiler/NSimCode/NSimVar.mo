@@ -48,6 +48,7 @@ protected
   import NFBackendExtension.{BackendInfo, VariableAttributes, VariableKind};
   import Binding = NFBinding;
   import ComponentRef = NFComponentRef;
+  import Dimension = NFDimension;
   import Expression = NFExpression;
   import NFInstNode.InstNode;
   import Operator = NFOperator;
@@ -190,7 +191,7 @@ public
             causality           = SOME(causality),
             variable_index      = SOME(uniqueIndex),
             fmi_index           = SOME(typeIndex),
-            numArrayElement     = {},
+            numArrayElement     = list(Dimension.toString(d) for d in Type.arrayDims(ComponentRef.nodeType(var.name))),
             isValueChangeable   = isValueChangeable,
             isProtected         = isProtected,
             hideResult          = var.backendinfo.annotations.hideResult,

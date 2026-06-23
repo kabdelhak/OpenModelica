@@ -407,17 +407,29 @@ protected
   Integer numCheckpoints;
   NSimCode.SimCode simCode;
   SimCode.SimCode oldSimCode;
+  Boolean prevSimCodeScalarize = false;
 algorithm
   numCheckpoints := ErrorExt.getNumCheckpoints();
   StackOverflow.clearStacktraceMessages();
   try
     System.realtimeTick(ClockIndexes.RT_CLOCK_SIMCODE);
+    // C++ runtime uses array objects, not scalarized doubles; disable scalarization so
+    // the new backend keeps whole-array SimVars instead of individual element SimVars.
+    if stringEqual(Config.simCodeTarget(), "Cpp") then
+      prevSimCodeScalarize := Flags.getConfigBool(Flags.SIM_CODE_SCALARIZE);
+      FlagsUtil.setConfigBool(Flags.SIM_CODE_SCALARIZE, false);
+    end if;
     (simCode, oldFunctionTree) := NSimCode.SimCode.create(bdae, className, fileNamePrefix, simSettingsOpt, SymbolTable.getAbsyn());
     if Flags.isSet(Flags.DUMP_SIMCODE) then
       print(NSimCode.SimCode.toString(simCode));
     end if;
     (fileDir, libs) := NSimCode.SimCode.getDirectoryAndLibs(simCode);
     oldSimCode := NSimCode.SimCode.convert(simCode);
+    // Restore SIM_CODE_SCALARIZE after convert() so convert() sees the correct value
+    // and sets oldSimCode.scalarized=false for C++ target (needed by isNonScalarized).
+    if stringEqual(Config.simCodeTarget(), "Cpp") then
+      FlagsUtil.setConfigBool(Flags.SIM_CODE_SCALARIZE, prevSimCodeScalarize);
+    end if;
     if Flags.isSet(Flags.DUMP_SIMCODE) then
       SimCodeUtil.dumpSimCodeDebug(oldSimCode);
     end if;

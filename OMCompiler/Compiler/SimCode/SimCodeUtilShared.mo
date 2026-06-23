@@ -65,6 +65,7 @@ import ComponentReference;
 import ComponentReferenceBasics;
 import DAEUtil;
 import Error;
+import Expression;
 import List;
 
 public
@@ -196,6 +197,7 @@ protected
   list<Integer> arrayDimensions;
   list<String> numArrayElement;
   list<DAE.Subscript> arraySubscripts;
+  list<DAE.Dimension> typeDims, dims;
 algorithm
   () := match iVar
     case SimCodeVar.SIMVAR(name=name, numArrayElement=numArrayElement)
@@ -212,7 +214,16 @@ algorithm
 
         if isArrayVar(iVar) then
           // store array dimensions and index of first element to indicate a contiguous array
-          arrayDimensions := list(stringInt(e) for e in List.lastN(numArrayElement, listLength(numArrayElement)));
+          if listEmpty(numArrayElement) then
+            // new backend: numArrayElement not populated, extract from DAE type
+            typeDims := match iVar.type_
+              case DAE.T_ARRAY(dims=dims) then dims;
+              else {};
+            end match;
+            arrayDimensions := list(Expression.dimensionSize(d) for d in typeDims);
+          else
+            arrayDimensions := list(stringInt(e) for e in List.lastN(numArrayElement, listLength(numArrayElement)));
+          end if;
           varIndices := arrayCreate(1, varIdx);
           varToArrayIndexMapping := BaseHashTable.add((arrayName, (arrayDimensions, varIndices)), varToArrayIndexMapping);
         elseif ComponentReferenceBasics.crefEqual(arrayName, name) then
@@ -347,13 +358,20 @@ public function getNumElems
    author: rfranke"
   input SimCodeVar.SimVar var;
   output Integer numElems;
+protected
+  list<DAE.Dimension> dims;
 algorithm
   numElems := match var
-    case SimCodeVar.SIMVAR(type_ = DAE.T_ARRAY()) algorithm
-      numElems := 1;
-      for d in var.numArrayElement loop
-        numElems := numElems * stringInt(d);
-      end for;
+    case SimCodeVar.SIMVAR(type_ = DAE.T_ARRAY(dims=dims)) algorithm
+      if listEmpty(var.numArrayElement) then
+        // new backend: numArrayElement not populated, extract from DAE type
+        numElems := List.fold(list(Expression.dimensionSize(d) for d in dims), intMul, 1);
+      else
+        numElems := 1;
+        for d in var.numArrayElement loop
+          numElems := numElems * stringInt(d);
+        end for;
+      end if;
       then numElems;
     else 1;
   end match;

@@ -1367,6 +1367,11 @@ package SimCodeUtil
     output String oVarIndex;
   end getVarIndexByMapping;
 
+  function isNonScalarized
+    input SimCode.SimCode inSimCode;
+    output Boolean b;
+  end isNonScalarized;
+
   function providesDirectionalDerivative
     input SimCode.SimCode inSimCode;
     output Boolean b;

@@ -12124,6 +12124,17 @@ algorithm
   (_,oConcreteVarIndex) := getVarIndexInfosByMapping(iVarToArrayIndexMapping, iVarName, iColumnMajor, iIndexForUndefinedReferences);
 end getVarIndexByMapping;
 
+public function isNonScalarized "Return true if the SimCode was generated without scalarization.
+Used by Susan templates to check if element access notation is needed for array vars."
+  input SimCode.SimCode inSimCode;
+  output Boolean b;
+algorithm
+  b := match inSimCode
+    case SimCode.SIMCODE(scalarized=false) then true;
+    else false;
+  end match;
+end isNonScalarized;
+
 public function providesDirectionalDerivative
   input SimCode.SimCode inSimCode;
   output Boolean b;
