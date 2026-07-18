@@ -1979,6 +1979,16 @@ function isJacobianResultVar
     end match;
   end isBound;
 
+  function getBindingExp
+    "Returns the binding expression of a bound variable. Fails for unbound variables."
+    input Pointer<Variable> var_ptr;
+    output Expression exp;
+  protected
+    Variable var = Pointer.access(var_ptr);
+  algorithm
+    exp := Binding.getExp(var.binding);
+  end getBindingExp;
+
   // ==========================================================================
   //                        Other type wrappers
   //

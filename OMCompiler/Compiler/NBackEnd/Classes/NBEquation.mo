@@ -2633,6 +2633,52 @@ public
       end if;
     end generateBindingEquation;
 
+    function generateBindingEquationFromExp
+      "Like generateBindingEquation but uses an explicitly provided rhs expression
+       instead of reading from var.binding. Used to create scalar binding equations
+       by decomposing a record binding expression field by field."
+      input Pointer<Variable> var_ptr;
+      input Expression rhs_in;
+      input Pointer<Integer> idx;
+      input Boolean initial_;
+      input UnorderedSet<VariablePointer> new_iters;
+      output Pointer<Equation> eqn;
+    protected
+      String context = "BND";
+      Variable var;
+      Expression lhs, rhs;
+      EquationAttributes eqnAttr;
+      Iterator iter;
+      list<Subscript> subs;
+      UnorderedMap<list<Dimension>, CrefLst> dims_map = UnorderedMap.new<CrefLst>(Dimension.hashList, function List.isEqualOnTrue(inCompFunc = Dimension.isEqual));
+      UnorderedMap<ComponentRef, Subscript> iter_map = UnorderedMap.new<Subscript>(ComponentRef.hash, ComponentRef.isEqual);
+    algorithm
+      var := Pointer.access(var_ptr);
+      rhs := rhs_in;
+
+      if BVariable.isClock(var_ptr) then
+        eqnAttr := EquationAttributes.default(EquationKind.CLOCKED, initial_, SOME(-1));
+      elseif BVariable.isContinuous(var_ptr, initial_) then
+        eqnAttr := EquationAttributes.default(EquationKind.CONTINUOUS, initial_, NONE(), var.backendinfo.annotations.optimizerExpression);
+      else
+        eqnAttr := EquationAttributes.default(EquationKind.DISCRETE, initial_);
+      end if;
+
+      (iter, rhs) := Iterator.extract(rhs, new_iters, dims_map);
+      rhs := SimplifyExp.simplifyDump(rhs, true, getInstanceName());
+
+      if Iterator.isEmpty(iter) then
+        lhs := Expression.fromCref(var.name);
+        eqn := makeAssignment(lhs, rhs, idx, context, Iterator.EMPTY(), eqnAttr);
+      else
+        rhs   := Expression.map(rhs, Expression.repairOperator);
+        subs  := Iterator.normalizedSubscripts(iter, iter_map);
+        lhs   := Expression.fromCref(ComponentRef.mergeSubscriptsMapped(var.name, dims_map, iter_map));
+        eqn   := makeAssignment(lhs, rhs, idx, context, iter, eqnAttr);
+        renameIterators(eqn, "$i");
+      end if;
+    end generateBindingEquationFromExp;
+
     function mergeIterators
       "do not use on entwined for loops!"
       input output Equation eq;
