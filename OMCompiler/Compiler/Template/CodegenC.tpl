@@ -6019,21 +6019,26 @@ match row
       // depsCode: dep-aware; for REGULAR 1D WHOLEDIM seeds uses resizableColCountRegular(_wr<%k%>).
       // Dep/rep condition checked inline; only valid where the outer _wr<%k%> loop variable is in scope.
       let depsCode = (deps |> (seed, dep, rep) =>
-        match dep
-        case DEPENDENCY(kinds=kinds) then
-          if not rep then
-            if not listEmpty(kinds) then
-              if not listHead(kinds) then
-                match crefSubs(seed)
-                case {WHOLEDIM()} then resizableColCountRegular(seed, nCols, k, context, &preExp, &varDecls, &auxFunction)
+        let inner =
+          match dep
+          case DEPENDENCY(kinds=kinds) then
+            if not rep then
+              if not listEmpty(kinds) then
+                if not listHead(kinds) then
+                  match crefSubs(seed)
+                  case {WHOLEDIM()} then resizableColCountRegular(seed, nCols, k, context, &preExp, &varDecls, &auxFunction)
+                  else resizableColCount(seed, nCols, context, &preExp, &varDecls, &auxFunction)
                 else resizableColCount(seed, nCols, context, &preExp, &varDecls, &auxFunction)
               else resizableColCount(seed, nCols, context, &preExp, &varDecls, &auxFunction)
             else resizableColCount(seed, nCols, context, &preExp, &varDecls, &auxFunction)
           else resizableColCount(seed, nCols, context, &preExp, &varDecls, &auxFunction)
-        else resizableColCount(seed, nCols, context, &preExp, &varDecls, &auxFunction)
+        resizableDepGuard(seed, dep, context, &preExp, &varDecls, &auxFunction, inner)
       ;separator="\n")
       // depsCodeReduced: always REDUCTION; used for SLICE sc (column alignment differs) and non-loop cases
-      let depsCodeReduced = (deps |> (seed, _, _) => resizableColCount(seed, nCols, context, &preExp, &varDecls, &auxFunction) ;separator="\n")
+      let depsCodeReduced = (deps |> (seed, dep, _) =>
+        let inner = resizableColCount(seed, nCols, context, &preExp, &varDecls, &auxFunction)
+        resizableDepGuard(seed, dep, context, &preExp, &varDecls, &auxFunction, inner)
+      ;separator="\n")
       match crefSubs(sc)
         case {WHOLEDIM()} then
           match context
@@ -6135,6 +6140,35 @@ match row
       >>
     else ''
 end resizableSparsityRowCount;
+
+template resizableDepGuard(ComponentRef seed, Dependency dep, Context context, Text &preExp, Text &varDecls, Text &auxFunction, String innerCode)
+"Wraps innerCode (a col_counts++ or index[]= write for one dependency of a
+ resizable-Jacobian row) with a runtime guard skipping literal iterator values
+ recorded in dep.skips[1] (see NBAdjacency.skipMissingLiteralSeeds) -- e.g.
+ ports[i1].p has a real seed only for i1=2, so the i1=1 iteration must not
+ touch that column. Only guards when seed's own leading subscript is a single
+ INDEX referencing a plain expression (the common for-loop-iterator case,
+ matching how skipMissingLiteralSeeds records skips); otherwise (no skips, or
+ a subscript pattern we don't specifically cover) returns innerCode unchanged."
+::=
+  match dep
+  case DEPENDENCY(skips=skips) then
+    if intGt(arrayLength(skips), 0) then
+      if not listEmpty(arrayGet(skips, 1)) then
+        match crefSubs(seed)
+        case INDEX(exp=idxExp) :: _ then
+          let idxCode = daeSubscriptExp(idxExp, context, &preExp, &varDecls, &auxFunction)
+          let cond = (arrayGet(skips, 1) |> sk => '(<%idxCode%>) != ((modelica_integer) <%sk%>)' ;separator=" && ")
+          <<
+          if (<%cond%>) {
+            <%innerCode%>
+          }
+          >>
+        else innerCode
+      else innerCode
+    else innerCode
+  else innerCode
+end resizableDepGuard;
 
 template resizableColCountRegular(ComponentRef seed, Integer nCols, Integer k, Context context, Text &preExp, Text &varDecls, Text &auxFunction)
 "Count phase for a REGULAR 1D whole-array seed: emit col_counts[v.index + _wr<%k%>]++ (one
@@ -6363,21 +6397,26 @@ match row
     // (single entry at _wr<%k%> offset). Dep/rep condition checked inline.
     // Only valid where _wr<%k%> is in scope (WHOLEDIM sc and multi-dim WHOLEDIM sc).
     let depsWholeDep = (deps |> (seed, dep, rep) =>
-      match dep
-      case DEPENDENCY(kinds=kinds) then
-        if not rep then
-          if not listEmpty(kinds) then
-            if not listHead(kinds) then
-              match crefSubs(seed)
-              case {WHOLEDIM()} then resizableColFillRegular(seed, nCols, 'row_<%k%>', k, context, &preExp, &varDecls, &auxFunction, spPattern)
+      let inner =
+        match dep
+        case DEPENDENCY(kinds=kinds) then
+          if not rep then
+            if not listEmpty(kinds) then
+              if not listHead(kinds) then
+                match crefSubs(seed)
+                case {WHOLEDIM()} then resizableColFillRegular(seed, nCols, 'row_<%k%>', k, context, &preExp, &varDecls, &auxFunction, spPattern)
+                else resizableColFill(seed, nCols, 'row_<%k%>', context, &preExp, &varDecls, &auxFunction, spPattern)
               else resizableColFill(seed, nCols, 'row_<%k%>', context, &preExp, &varDecls, &auxFunction, spPattern)
             else resizableColFill(seed, nCols, 'row_<%k%>', context, &preExp, &varDecls, &auxFunction, spPattern)
           else resizableColFill(seed, nCols, 'row_<%k%>', context, &preExp, &varDecls, &auxFunction, spPattern)
         else resizableColFill(seed, nCols, 'row_<%k%>', context, &preExp, &varDecls, &auxFunction, spPattern)
-      else resizableColFill(seed, nCols, 'row_<%k%>', context, &preExp, &varDecls, &auxFunction, spPattern)
+      resizableDepGuard(seed, dep, context, &preExp, &varDecls, &auxFunction, inner)
     ;separator="\n")
     // depsWholeReduced: always REDUCTION; used for SLICE sc where column ≠ _wr<%k%>.
-    let depsWholeReduced = (deps |> (seed, _, _) => resizableColFill(seed, nCols, 'row_<%k%>', context, &preExp, &varDecls, &auxFunction, spPattern) ;separator="\n")
+    let depsWholeReduced = (deps |> (seed, dep, _) =>
+      let inner = resizableColFill(seed, nCols, 'row_<%k%>', context, &preExp, &varDecls, &auxFunction, spPattern)
+      resizableDepGuard(seed, dep, context, &preExp, &varDecls, &auxFunction, inner)
+    ;separator="\n")
     match crefSubs(sc)
       case {WHOLEDIM()} then
         match context
@@ -6439,7 +6478,10 @@ match row
           match simVarFromHT(crefStripSubs(sc), jacHT)
           case v as SIMVAR() then
             let rowExpr = '<%v.index%>'
-            let fillCode = (deps |> (seed, _, _) => resizableColFill(seed, nCols, rowExpr, context, &preExp, &varDecls, &auxFunction, spPattern) ;separator="\n")
+            let fillCode = (deps |> (seed, dep, _) =>
+              let inner = resizableColFill(seed, nCols, rowExpr, context, &preExp, &varDecls, &auxFunction, spPattern)
+              resizableDepGuard(seed, dep, context, &preExp, &varDecls, &auxFunction, inner)
+            ;separator="\n")
             <<
             <%fillCode%>
             >>
@@ -6544,7 +6586,10 @@ match row
               let &offsetPreExp = buffer ""
               let offset = indexSubRecursive(listReverse(List.restOrEmpty(crefDims(sc))), listReverse(crefSubs(sc)), context, &offsetPreExp, &varDecls, &auxFunction)
               let rowExpr = '<%v.index%> + (unsigned int)(<%offset%>)'
-              let fillCode = (deps |> (seed, _, _) => resizableColFill(seed, nCols, rowExpr, context, &preExp, &varDecls, &auxFunction, spPattern) ;separator="\n")
+              let fillCode = (deps |> (seed, dep, _) =>
+                let inner = resizableColFill(seed, nCols, rowExpr, context, &preExp, &varDecls, &auxFunction, spPattern)
+                resizableDepGuard(seed, dep, context, &preExp, &varDecls, &auxFunction, inner)
+              ;separator="\n")
               <<
               <%offsetPreExp%>
               <%fillCode%>

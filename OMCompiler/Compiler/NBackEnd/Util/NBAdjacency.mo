@@ -54,6 +54,7 @@ protected
   import Dimension = NFDimension;
   import Expression = NFExpression;
   import NFFunction.Function;
+  import NFInstNode.InstNode;
   import SimplifyExp = NFSimplifyExp;
   import Statement = NFStatement;
   import Subscript = NFSubscript;
@@ -477,33 +478,75 @@ public
       output Matrix adj = upgrade(EMPTY(MatrixStrictness.FULL), full, vars_map, eqns_map, eqns, st, iter);
     end fullToFinal;
 
-    function adjustedIteratorForSlice
-      "For SLICED_COMPONENT for-equations with a partial (non-empty) slice,
-       restrict the iterator start to the 1-based first slice element.
-       This avoids phantom col_counts entries when the original for-loop
-       range exceeds the elements handled by this component."
-      input StrongComponent comp;
-      input Iterator iter;
-      output Iterator out_iter = iter;
+    function substituteIterator
+      "Substitutes iter_node's iterator variable with the literal value k in cref.
+      Returns cref unchanged if cref is not a plain cref expression (should not
+      happen for component references) or does not depend on the iterator at all."
+      input ComponentRef cref;
+      input InstNode iter_node;
+      input Integer k;
+      output ComponentRef outCref;
     algorithm
-      () := match (comp, iter)
-        local
-          Integer min_idx_1based, start_val;
-          Expression range;
-        case (StrongComponent.SLICED_COMPONENT(),
-              Iterator.SINGLE(range = range as Expression.RANGE(start = Expression.INTEGER(start_val))))
-          guard not listEmpty(comp.eqn.indices)
+      outCref := match Expression.replaceIterator(Expression.fromCref(cref), iter_node, Expression.INTEGER(k))
+        case Expression.CREF(cref = outCref) then outCref;
+        else cref;
+      end match;
+    end substituteIterator;
+
+    function skipMissingLiteralSeeds
+      "For a dependency cref that is subscripted by the row equation's own for-loop
+      iterator (e.g. ports[i1].p), checks whether a concrete seed exists in
+      seed_set for every literal value the iterator can take, and marks any
+      literal value with no exact match as a Dependency skip. This lets
+      CodegenC.tpl's resizable sparsity fill correctly omit just that one
+      dependency write for the affected iteration, instead of dropping the whole
+      row -- which used to happen when the row's equation_iterators were narrowed
+      to start above the first missing element (see former adjustedIteratorForSlice):
+      narrowing desynced the sparsity-pattern row index from the independently
+      row-anchored Jacobian value-eval codegen (see Buildings Humidifier_u.mos,
+      where ports[1].p has no plain seed but $RES_SIM_69[1] is still a genuine
+      result row with another, valid dependency).
+      Only acts when at least one literal value has an exact concrete match in
+      seed_set, so dependencies matched only through the caller's stripSubscripts
+      fallback (e.g. ODE/DAE full-array seeds, which never appear in seed_set as
+      literal-indexed elements) are left untouched."
+      input ComponentRef dep_cref  "pre-diff_map cref, same namespace as seed_set";
+      input ComponentRef seed_cref "post-diff_map cref, the dep_map key to mark skips on";
+      input Iterator iter          "the row equation's own, un-narrowed iterator";
+      input UnorderedSet<ComponentRef> seed_set;
+      input UnorderedMap<ComponentRef, Dependency> dep_map;
+    protected
+      InstNode iter_node;
+      Integer start_val, stop_val;
+      ComponentRef concrete;
+      list<Integer> missing;
+      Boolean any_exact;
+    algorithm
+      () := match iter
+        case Iterator.SINGLE(range = Expression.RANGE(start = Expression.INTEGER(start_val), stop = Expression.INTEGER(stop_val)))
           algorithm
-            min_idx_1based := listHead(comp.eqn.indices) + 1;
-            if min_idx_1based > start_val then
-              out_iter := Iterator.SINGLE(iter.name,
-                Expression.RANGE(range.ty, Expression.INTEGER(min_idx_1based), range.step, range.stop),
-                iter.map);
+            iter_node := ComponentRef.node(iter.name);
+            if not ComponentRef.isEqual(substituteIterator(dep_cref, iter_node, start_val), dep_cref) then
+              missing := {};
+              any_exact := false;
+              for k in start_val:stop_val loop
+                concrete := substituteIterator(dep_cref, iter_node, k);
+                if UnorderedSet.contains(concrete, seed_set) then
+                  any_exact := true;
+                else
+                  missing := k :: missing;
+                end if;
+              end for;
+              if any_exact and not listEmpty(missing) then
+                for k in missing loop
+                  Dependency.skip(seed_cref, 1, k, dep_map);
+                end for;
+              end if;
             end if;
         then ();
         else ();
       end match;
-    end adjustedIteratorForSlice;
+    end skipMissingLiteralSeeds;
 
     function fullToSparsity
       input Matrix full;
@@ -564,6 +607,7 @@ public
             for eqn in eqns loop
               eqn_name    := Equation.getEqnName(eqn);
               eqn_index   := UnorderedMap.getSafe(eqn_name, index_map, sourceInfo());
+              iter        := Equation.getForIterator(Pointer.access(eqn));
 
               // map the dependencies with the inner maps
               local_deps  := {};
@@ -623,6 +667,7 @@ public
                         end match;
                       end match;
                       UnorderedMap.add(seed_cref, dep, dep_map);
+                      skipMissingLiteralSeeds(dep_cref, seed_cref, iter, seed_set, dep_map);
                       if repeated then
                         UnorderedSet.add(seed_cref, rep_set);
                       end if;
@@ -670,7 +715,6 @@ public
                 // save the row/result dependencies
                 // get the iterators (potentially need local iterators?)
                 eqn_names     := eqn_name :: eqn_names;
-                iter          := adjustedIteratorForSlice(comp, Equation.getForIterator(Pointer.access(eqn)));
                 eqn_iters     := iter :: eqn_iters;
                 deps          := dep_map :: deps;
                 reps          := rep_set :: reps;
@@ -1660,6 +1704,13 @@ public
     end update;
 
     function skip
+      "Marks literal value sk as skipped at dimension depth for cref's dependency.
+      Grows dep.skips on demand if it was pre-allocated for a shallower depth --
+      callers that only ever need depth 0 (e.g. a plain scalar/array-indexed
+      dependency, see NBAdjacency.skipMissingLiteralSeeds) create their Dependency
+      via Dependency.create with depth=0, so skips starts out empty; growing here
+      instead of silently dropping the skip lets those callers use this function
+      without having to know the eventual depth up front."
       input ComponentRef cref;
       input Integer depth;
       input Integer sk;
@@ -1667,18 +1718,19 @@ public
     protected
       Option<Dependency> opt_dep = UnorderedMap.get(cref, map);
       Dependency dep;
+      array<list<Integer>> grown;
     algorithm
       if isSome(opt_dep) then
         SOME(dep) := opt_dep;
-        if arrayLength(dep.skips) >= depth then
-          // this might scale badly, try to unique the lists in the end or always use sets here
-          arrayUpdate(dep.skips, depth, UnorderedSet.unique_list(sk :: dep.skips[depth], Util.id, intEq));
-        else
-          if Flags.isSet(Flags.FAILTRACE) then
-            Error.addCompilerWarning(getInstanceName() + ": Cref " + ComponentRef.toString(cref)
-            + " was saved with depth " + intString(arrayLength(dep.skips)) + " but depth " + intString(depth) + " was requested.");
-          end if;
+        if arrayLength(dep.skips) < depth then
+          grown := arrayCreate(depth, {});
+          for i in 1:arrayLength(dep.skips) loop
+            arrayUpdate(grown, i, dep.skips[i]);
+          end for;
+          dep.skips := grown;
         end if;
+        // this might scale badly, try to unique the lists in the end or always use sets here
+        arrayUpdate(dep.skips, depth, UnorderedSet.unique_list(sk :: dep.skips[depth], Util.id, intEq));
 
         UnorderedMap.add(cref, dep, map);
       else
