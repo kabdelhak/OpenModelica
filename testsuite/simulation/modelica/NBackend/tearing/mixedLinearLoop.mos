@@ -1,0 +1,46 @@
+// name: mixedLinearLoop
+// keywords: NewBackend
+// status: correct
+//
+// Regression test for #16463 promoting a `mixed` (discrete-coupled) torn
+// linear algebraic loop to a direct A*x=b solve. x/y are structurally
+// linear given fixed s1/s2, but s1/s2 are themselves derived from x/y, so
+// the loop is genuinely `mixed`. Before the fix this got routed through
+// LINEARSYSTEM, needing the runtime's total-pivoting fallback solver
+// throughout the run (see LOG_LS output on origin/master before this
+// fix); after the fix it correctly stays on the NONLINEARSYSTEM/Newton
+// path instead ("0 linear systems").
+
+loadString("
+model mixedLinearLoop
+  Boolean s1, s2;
+  Real x, y;
+equation
+  s1 = x > 0.5;
+  s2 = y > 0.5;
+  x + (if s1 then 2 else 1)*y = if s2 then 3 else 1;
+  (if s2 then 2 else 1)*x - y = if s1 then 1 else 0.5;
+end mixedLinearLoop;
+"); getErrorString();
+
+setCommandLineOptions("--newBackend"); getErrorString();
+
+simulate(mixedLinearLoop, stopTime=0.1, numberOfIntervals=5, simflags="-lv=LOG_LS,LOG_STDOUT");
+getErrorString();
+
+// Result:
+// true
+// ""
+// true
+// ""
+// record SimulationResult
+//     resultFile = "mixedLinearLoop_res.mat",
+//     simulationOptions = "startTime = 0.0, stopTime = 0.1, numberOfIntervals = 5, tolerance = 1e-6, method = 'dassl', fileNamePrefix = 'mixedLinearLoop', options = '', outputFormat = 'mat', variableFilter = '.*', cflags = '', simflags = '-lv=LOG_LS,LOG_STDOUT'",
+//     messages = "LOG_LS            | info    | initialize linear system solvers
+// |                 | |       | | 0 linear systems
+// LOG_SUCCESS       | info    | The initialization finished successfully without homotopy method.
+// LOG_SUCCESS       | info    | The simulation finished successfully.
+// "
+// end SimulationResult;
+// ""
+// endResult
