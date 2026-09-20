@@ -254,6 +254,16 @@ public
   // ############################################################
 
 protected
+  function isBindingEquation
+    "binding equations are named $RES_BND_<index>"
+    input Pointer<Equation> eqn;
+    output Boolean b;
+  protected
+    String name = ComponentRef.toString(Equation.getEqnName(eqn));
+  algorithm
+    b := stringLength(name) >= 8 and substring(name, 1, 8) == "$RES_BND";
+  end isBindingEquation;
+
   function causalizePseudoArray extends Module.causalizeInterface;
   protected
     BPartition.Kind kind = Partition.getKind(partition);
@@ -267,7 +277,7 @@ protected
     (variables, equations, full, matching, comps) := match kind
       local
         list<Pointer<Variable>> fixable, unfixable;
-        list<Pointer<Equation>> initials, simulation;
+        list<Pointer<Equation>> initials, simulation, bindings, others;
         UnorderedMap<ComponentRef, Integer> vo, vn, eo, en;
 
       case kind guard(Partition.kindIsInitial(kind)) algorithm
@@ -277,29 +287,31 @@ protected
 
         // split the variables and equations
         (fixable, unfixable)    := List.splitOnTrue(VariablePointers.toList(partition.unknowns), BVariable.isFixable);
-        (initials, simulation)  := List.splitOnTrue(EquationPointers.toList(partition.equations), Equation.isInitial);
+        (bindings, others)      := List.splitOnTrue(EquationPointers.toList(partition.equations), isBindingEquation);
+        (initials, simulation)  := List.splitOnTrue(others, Equation.isInitial);
 
         // create full matrix
         full := Adjacency.Matrix.createFull(partition.unknowns, partition.equations, kind);
 
         // do not resolve potential singular partitions in Phase I or II! -> regular matching
         // #################################################
-        // Phase I: match initial equations <-> unfixable vars
+        // Phase I: match binding equations <-> unfixable vars
+        // an initial equation for a variable that has a binding is redundant, so the bindings go first
         // #################################################
         vn := UnorderedMap.subMap(partition.unknowns.map, list(BVariable.getVarName(var) for var in unfixable));
-        en := UnorderedMap.subMap(partition.equations.map, list(Equation.getEqnName(eqn) for eqn in initials));
+        en := UnorderedMap.subMap(partition.equations.map, list(Equation.getEqnName(eqn) for eqn in bindings));
         adj_matching := Adjacency.Matrix.fullToFinal(full, vn, en, partition.equations, NBAdjacency.MatrixStrictness.MATCHING);
         matching := Matching.regular(NBMatching.EMPTY_MATCHING, adj_matching, true, true);
 
         // #################################################
-        // Phase II: match all equations <-> unfixables
+        // Phase II: match all other equations <-> unfixables, keeping the bindings matched
         // #################################################
         vo := vn;
         eo := en;
         vn := UnorderedMap.new<Integer>(ComponentRef.hash, ComponentRef.isEqual);
-        en := UnorderedMap.subMap(partition.equations.map, list(Equation.getEqnName(eqn) for eqn in simulation));
+        en := UnorderedMap.subMap(partition.equations.map, list(Equation.getEqnName(eqn) for eqn in listAppend(initials, simulation)));
         (adj_matching, full) := Adjacency.Matrix.expand(adj_matching, full, vo, vn, eo, en, partition.unknowns, partition.equations, Partition.getKind(partition));
-        matching := Matching.regular(matching, adj_matching, true, true);
+        matching := Matching.regular(matching, adj_matching, true, true, false);
 
         // #################################################
         // Phase III: match all equations <-> all vars
