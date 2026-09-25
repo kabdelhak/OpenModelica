@@ -252,6 +252,22 @@ public
 
         // if it is an array create for-equation (fixed or unfixed)
         case Variable.VARIABLE() guard BVariable.isArray(var) algorithm
+          // the start value of a function output is the call at the start values of its arguments
+          if not BVariable.isFixed(var) and isFunctionAliasOrElement(var) then
+            start_ok := Pointer.create(true);
+            () := match BVariable.getStartAttribute(var)
+              case SOME(start_exp) guard not Expression.isLiteralXML(start_exp) algorithm
+                start_exp := resolveStartCrefs(start_exp, ptr_start_vars, aliasVars, start_ok, 0);
+                if Pointer.access(start_ok) then
+                  Pointer.update(var, BVariable.setStartAttribute(Pointer.access(var), start_exp, true));
+                end if;
+              then ();
+              else ();
+            end match;
+            if not Pointer.access(start_ok) then
+              return;
+            end if;
+          end if;
           if BVariable.isFixed(var) then
             createStartEquationSlice(Slice.SLICE(var, {}), ptr_start_vars, ptr_start_eqs, idx, BVariable.isFixed(var));
           else
@@ -828,7 +844,7 @@ public
           // records (and their elements) can be removed as aliases from the system, referencing
           // them would bring back their record equations and unbalance the initialization
           Pointer.update(ok, false);
-        elseif Type.isReal(Variable.typeOf(var)) and not Type.isArray(Expression.typeOf(exp)) and BVariable.isContinuous(var_ptr, true) then
+        elseif Type.isReal(Type.arrayElementType(Variable.typeOf(var))) and not Type.isArray(Expression.typeOf(exp)) and BVariable.isContinuous(var_ptr, true) then
           start_opt := BVariable.getStartAttribute(var_ptr);
           existed   := isSome(BVariable.getVarStart(var_ptr));
           if BVariable.isFixed(var_ptr) and isSome(start_opt) and not Expression.isLiteralXML(Util.getOption(start_opt)) then
