@@ -466,7 +466,8 @@ pub mod sun {
                 // A Jacobian KLU cannot factorize (all-zero at the start point, say):
                 // difference it from here on, as C re-points `KINSetJacFn`.
                 KIN_LSETUP_FAIL => self.numeric_jac = true,
-                KIN_MAXITER_REACHED | KIN_REPTD_SYSFUNC_ERR | KIN_LINESEARCH_BCFAIL => {}
+                // the step got too small but the residual is not (checked by the caller)
+                KIN_STEP_LT_STPTOL | KIN_MAXITER_REACHED | KIN_REPTD_SYSFUNC_ERR | KIN_LINESEARCH_BCFAIL => {}
                 _ => return false,
             }
             let mut fnorm = 0.0;
@@ -543,8 +544,15 @@ pub mod sun {
                 unsafe { KINGetNumNonlinSolvIters(self.kin, &mut iters) };
                 crate::note_nls_iters((iters - self.iters_seen).max(0) as u64);
                 self.iters_seen = iters;
-                success = matches!(flag, KIN_SUCCESS | KIN_INITIAL_GUESS_OK | KIN_STEP_LT_STPTOL);
-                let retry = flag < 0 && self.handle_error(flag, &mut retries, &mut reset_tol);
+                // a step below the tolerance only solves the system if the residual is small
+                let mut stalled = false;
+                if flag == KIN_STEP_LT_STPTOL {
+                    let mut fnorm = 0.0;
+                    unsafe { KINGetFuncNorm(self.kin, &mut fnorm) };
+                    stalled = fnorm >= FTOL_LESS_ACCURACY;
+                }
+                success = matches!(flag, KIN_SUCCESS | KIN_INITIAL_GUESS_OK) || (flag == KIN_STEP_LT_STPTOL && !stalled);
+                let retry = (flag < 0 || stalled) && self.handle_error(flag, &mut retries, &mut reset_tol);
                 ud.numeric = self.numeric_jac;
                 retries += 1;
                 passes += 1;

@@ -1241,6 +1241,9 @@ static modelica_boolean nlsKinsolErrorHandler(int errorCode, DATA *data,
       }
     }
     break;
+  /* the step got too small but the residual is not (checked by the caller) */
+  case KIN_STEP_LT_STPTOL:
+    break;
   case KIN_LINESEARCH_BCFAIL:
     KINGetNumBetaCondFails(kinsolData->kinsolMemory, &outL);
     warningStreamPrint(
@@ -1361,6 +1364,7 @@ NLS_SOLVER_STATUS nlsKinsolSolve(DATA* data, threadData_t* threadData, NONLINEAR
   long nFEval;
   modelica_boolean success = FALSE;
   modelica_boolean retry = TRUE;
+  modelica_boolean stalled;
   NLS_SOLVER_STATUS solver_status;
   double *xStart = NV_DATA_S(kinsolData->initialGuess);
   double fNormValue;
@@ -1422,12 +1426,22 @@ NLS_SOLVER_STATUS nlsKinsolSolve(DATA* data, threadData_t* threadData, NONLINEAR
     } else {
       infoStreamPrint(OMC_LOG_NLS_V, 0, "KINSol finished with errorCode %d.", flag);
     }
+    /* a step below the tolerance only solves the system if the residual is small */
+    stalled = FALSE;
+    if (flag == KIN_STEP_LT_STPTOL) {
+      KINGetFuncNorm(kinsolData->kinsolMemory, &fNormValue);
+      stalled = fNormValue >= FTOL_WITH_LESS_ACCURACY;
+      if (stalled) {
+        warningStreamPrint(OMC_LOG_NLS_V, 0, "KINSOL: Step below tolerance but fx = %g is not small.", fNormValue);
+      }
+    }
+
     /* Try to handle recoverable errors */
-    retry = flag < 0 && kinsolData->attemptRetry && nlsKinsolErrorHandler(flag, data, nlsData, kinsolData);
+    retry = (flag < 0 || stalled) && kinsolData->attemptRetry && nlsKinsolErrorHandler(flag, data, nlsData, kinsolData);
 
     /* solution found */
     if ((flag == KIN_SUCCESS) || (flag == KIN_INITIAL_GUESS_OK) ||
-        (flag == KIN_STEP_LT_STPTOL)) {
+        (flag == KIN_STEP_LT_STPTOL && !stalled)) {
       success = TRUE;
     }
     kinsolData->retries++;
