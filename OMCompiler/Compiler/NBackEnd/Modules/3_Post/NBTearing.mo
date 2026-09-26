@@ -864,6 +864,12 @@ protected
     end match;
   end cellier;
 
+  function cellierHasRow
+    input Pointer<Equation> eqn;
+    input UnorderedMap<ComponentRef, Integer> map;
+    output Boolean b = UnorderedMap.contains(Equation.getEqnName(eqn), map);
+  end cellierHasRow;
+
   function cellierTearingSet
     input output Tearing strict;
     input Adjacency.Matrix full;
@@ -914,6 +920,14 @@ protected
     if nv <> listLength(loop_vars) + listLength(block_vars) or ne <> listLength(loop_eqns) then
       return;
     end if;
+    // equations without adjacency row (not in the equation map) can not be handled
+    for b in 1:nb loop
+      loop_eqns := listAppend(StrongComponent.getEquations(blocks[b]), loop_eqns);
+    end for;
+    if not List.all(loop_eqns, function cellierHasRow(map = equations.map)) then
+      return;
+    end if;
+    loop_eqns := list(Slice.getT(eqn) for eqn in strict.residual_eqns);
 
     // unit kinds: 1 = loop variable, 3 = solved by a block of minimal tearing
     unit_kind := arrayCreate(nv, 3);

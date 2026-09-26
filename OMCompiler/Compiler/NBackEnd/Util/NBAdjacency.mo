@@ -1647,7 +1647,7 @@ public
                     elseif containsLoopCref(exp, vars_set) then
                       // nonlinear -> unique solution if does not contain the variable itself
                       // TODO: might still be unique in some cases, even if contains the variable, e.g. `exp(x)`
-                      sol := Solvability.EXPLICIT_NONLINEAR(Expression.containsCref(exp, var));
+                      sol := Solvability.EXPLICIT_NONLINEAR(not Expression.containsCref(exp, var));
                     else
                       // linear -> find all contained crefs and split them by kind. remove constants and save params / variables
                       linear_set  := Expression.extractCrefs(exp);
