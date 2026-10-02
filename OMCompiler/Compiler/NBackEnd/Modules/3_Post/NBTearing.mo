@@ -321,6 +321,9 @@ public
       // already scalar: no row-collapse risk. A single row of a bigger array
       // equation still has the residual variable of the whole array.
       slices := {eqn};
+    elseif isNone(Equation.tryGetResidualExp(eqn_ptr)) then
+      // no residual rows (e.g. if-equation bodies), keep the slice
+      slices := {eqn};
     else
       base_cref := Equation.getEqnName(eqn_ptr);
       is_for    := Equation.isSingleBodyFor(e);
