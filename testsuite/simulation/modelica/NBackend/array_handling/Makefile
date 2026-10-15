@@ -27,6 +27,7 @@ entwinedOrder.mos \
 resizableOverride.mos \
 resizableOverrideDerived.mos \
 resizablePartialLoops.mos \
+resizableLoopBlocks.mos \
 resizableConnectArrays.mos \
 resizableInputs.mos \
 resizableAlgebraicLoops.mos \
