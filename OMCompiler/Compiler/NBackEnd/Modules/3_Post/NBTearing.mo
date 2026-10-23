@@ -433,17 +433,12 @@ public
     output list<Module.tearingInterface> funcs;
   protected
     String flag = Flags.getConfigString(Flags.TEARING_METHOD);
-    function isNotGuruVar extends BVariable.checkVar;
-      input Boolean init;
-    algorithm
-      b := BVariable.hasTearingSelect(var_ptr, NFBackendExtension.TearingSelect.PREFER, intLt);
-    end isNotGuruVar;
   algorithm
     funcs := match flag
       case "minimalTearing" then {function initialize(varFunc = BVariable.isDiscontinuous, eqnFunc = Equation.isDiscontinuous), minimal, finalize};
       case "cellier"        then {function initialize(varFunc = BVariable.isDiscontinuous, eqnFunc = Equation.isDiscontinuous), minimal, cellier, finalize};
       case "omcTearing"     then {function initialize(varFunc = BVariable.isDiscontinuous, eqnFunc = Equation.isDiscontinuous), minimal, finalize}; // TODO set `minimal = false` when it's actually doing something
-      case "guruTearing"    then {function initialize(varFunc = isNotGuruVar, eqnFunc = noFilterEqn), guru, finalize};
+      case "guruTearing"    then {function initialize(varFunc = BVariable.isDiscontinuous, eqnFunc = Equation.isDiscontinuous), minimal, guru, finalize};
       /* ... New tearing modules have to be added here */
       else fail();
     end match;
@@ -1147,132 +1142,22 @@ protected
   end sortByIndex;
 
   function guru extends Module.tearingInterface;
-  protected
-    list<StrongComponent> inner_comps = {};
-    list<EqnSlice> residuals = {};
-    Tearing strict;
-    Integer nEqn;
-    list<VarSlice> inner_vars, guru_vars, failed_vars;
-    UnorderedMap<ComponentRef, VarSlice> unsolved_inner_vars;
-    UnorderedMap<ComponentRef, EqnSlice> unsolved_equations;
-    Option<ComponentRef> solve_opt;
-    ComponentRef solve_cref;
-    VarSlice solve_var;
-    EqnSlice solve_eqn;
-    Boolean success, var_assigned;
-    ComponentRef stripped;
-    constant Boolean staticAsContinuous = Partition.kindIsInitial(kind);
+    // tears the variables with tearing select prefer or always of what minimal tearing left over.
+    // if they do not suffice, cellier adds tear variables. loops without such variables are not torn.
   algorithm
     comp := match (comp, full)
-      case (StrongComponent.ALGEBRAIC_LOOP(strict = strict), Adjacency.FULL()) algorithm
-        nEqn := arrayLength(full.equation_names);
-
-        // split variables to inner variables and guru iteration vars
-        (inner_vars, guru_vars) := List.splitOnTrue(strict.iteration_vars,
-          function Slice.check(func = function BVariable.hasTearingSelect(compareTS = NFBackendExtension.TearingSelect.PREFER, func = intLt)));
-
-        if listEmpty(guru_vars) then
-          Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed. No guru variables provided for strong component:\n"
-            + StrongComponent.toString(comp)});
-          fail();
-        else
-          failed_vars := list(var for var guard(Slice.check(var, function NBVariable.isDiscontinuous(staticAsContinuous = staticAsContinuous))) in guru_vars);
-          if not listEmpty(failed_vars) then
-            Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed. Following variables cannot be chosen as iteration variables because they are discontinuous:\n"
-              + List.toString(failed_vars, function Slice.toString(func = BVariable.pointerToString, maxLength = 10), List.Style.NEWLINE_TAB)});
-            fail();
-          end if;
-
-          // collect the (yet) unsolved inner vars as a map of their name to their variable slice
-          // at the end of the algorithm this set has to be empty
-          unsolved_inner_vars := UnorderedMap.new<VarSlice>(ComponentRef.hash, ComponentRef.isEqual);
-          for var in inner_vars loop
-            UnorderedMap.add(BVariable.getVarName(Slice.getT(var)), var, unsolved_inner_vars);
-          end for;
-
-          // collect the (yet) unsolved equations. all remaining at the end will be residual
-          unsolved_equations := UnorderedMap.new<EqnSlice>(ComponentRef.hash, ComponentRef.isEqual);
-          for eqn in strict.residual_eqns loop
-            UnorderedMap.add(Equation.getEqnName(Slice.getT(eqn)), eqn, unsolved_equations);
-          end for;
-
-          // main routine finding the inner variable and equation pairs
-          while(not UnorderedMap.isEmpty(unsolved_inner_vars)) loop
-            for i in 1:nEqn loop
-              var_assigned := false;
-              if UnorderedMap.contains(full.equation_names[i], unsolved_equations) then
-                solve_opt := NONE();
-                success := false;
-                for cref in UnorderedSet.toList(full.occurrences[i]) loop
-                  stripped := ComponentRef.stripSubscriptsAll(cref);
-                  if UnorderedMap.contains(stripped, unsolved_inner_vars) then
-                    if isNone(solve_opt) then
-                      success := true;
-                      solve_opt := SOME(cref);
-                    else
-                      success := false;
-                      break;
-                    end if;
-                  end if;
-                end for;
-
-                // ToDo: multi-components (algorithms)
-                ():= match (solve_opt, success)
-                  // case I: possibly solvable as inner. check if the full cref can be solved
-                  case (SOME(solve_cref), true) algorithm
-                    // ToDo: for now assume it can be fully solved, needs to be checked!
-                    // ToDo: check solvability? --> if not linear then fail or check strictness
-                    stripped    := ComponentRef.stripSubscriptsAll(solve_cref);
-                    solve_var   := UnorderedMap.getSafe(stripped, unsolved_inner_vars, sourceInfo());
-                    solve_eqn   := UnorderedMap.getSafe(full.equation_names[i], unsolved_equations, sourceInfo());
-                    inner_comps := StrongComponent.createSliceOrSingle(solve_cref, solve_var, solve_eqn) :: inner_comps;
-
-                    // remove the variable and equation from candidates
-                    UnorderedMap.remove(stripped, unsolved_inner_vars);
-                    UnorderedMap.remove(full.equation_names[i], unsolved_equations);
-                    var_assigned := true;
-                  then ();
-
-                  // case II: more than one inner found, just skip and do nothing until this might be solvable later
-                  case (SOME(solve_cref), false) then ();
-
-                  // case III: none found, has to be residual
-                  case (NONE(), false) algorithm
-                    residuals := UnorderedMap.getSafe(full.equation_names[i], unsolved_equations, sourceInfo()) :: residuals;
-                    UnorderedMap.remove(full.equation_names[i], unsolved_equations);
-                  then ();
-
-                  // FAIL: algorithm should not be able to produce this impossible combination
-                  else algorithm
-                    Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed. Impossible result for equation representative: "
-                      + ComponentRef.toString(full.equation_names[i]) + "."});
-                  then ();
-                end match;
-              end if;
-              if var_assigned then break; end if;
-            end for;
-
-            // if not variable could be assigned in a full circle of checking all equations the problem is impossible to solve
-            if not var_assigned then
-              Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed. Following variables could not be solved as inner variables:\n"
-                + List.toString(UnorderedMap.valueList(unsolved_inner_vars), function Slice.toString(func = BVariable.pointerToString, maxLength = 10), List.Style.NEWLINE_TAB)});
-              fail();
-            end if;
-          end while;
-
-          comp.mixed := List.any(inner_vars, function Slice.check(func = function BVariable.isDiscontinuous(staticAsContinuous = staticAsContinuous)));
-
-          // save residuals equations and iteration variables to the strong component
-          strict.innerEquations := listArray(listReverse(inner_comps));
-          strict.residual_eqns  := listAppend(UnorderedMap.valueList(unsolved_equations), residuals);
-          strict.iteration_vars := guru_vars;
-          comp.strict := strict;
-        end if;
-
+      case (StrongComponent.ALGEBRAIC_LOOP(), Adjacency.FULL())
+        guard(List.any(comp.strict.iteration_vars, function Slice.check(func = isGuruVar))) algorithm
+        comp.strict := cellierTearingSet(comp.strict, full, equations, funcMap, true);
       then comp;
       else comp;
     end match;
   end guru;
+
+  function isGuruVar
+    input Pointer<Variable> var_ptr;
+    output Boolean b = BVariable.hasTearingSelect(var_ptr, NFBackendExtension.TearingSelect.PREFER, intGe);
+  end isGuruVar;
 
   function cellier extends Module.tearingInterface;
     // Cellier style tearing of what minimal tearing left over. Variables are only assigned as a whole
@@ -1325,6 +1210,7 @@ protected
     input Adjacency.Matrix full;
     input EquationPointers equations;
     input UnorderedMap<Path, Function> funcMap;
+    input Boolean guru = false "the variables with tearing select prefer or always are tear variables, others only if they do not suffice";
   protected
     UnorderedMap<Integer, Boolean> probes = UnorderedMap.new<Boolean>(Util.id, intEq);
     list<Pointer<Variable>> loop_vars, block_vars = {};
@@ -1341,7 +1227,7 @@ protected
     array<StrongComponent> blocks;
     list<Integer> tears, fixed = {}, trial;
     Option<Integer> opt_idx;
-    Boolean complete;
+    Boolean complete = false;
     list<tuple<Integer, StrongComponent>> ordered = {};
     UnorderedSet<Integer> tear_set;
     array<UnorderedSet<ComponentRef>> occurrences;
@@ -1386,7 +1272,7 @@ protected
       idx := UnorderedMap.getSafe(BVariable.getVarName(Slice.getT(var)), vars.map, sourceInfo());
       unit_kind[idx] := 1;
       var_slices[idx] := var;
-      if Integer(BVariable.getTearingSelect(Slice.getT(var))) == Integer(NFBackendExtension.TearingSelect.ALWAYS) then
+      if BVariable.hasTearingSelect(Slice.getT(var), if guru then NFBackendExtension.TearingSelect.PREFER else NFBackendExtension.TearingSelect.ALWAYS, intGe) then
         fixed := idx :: fixed;
       end if;
     end for;
@@ -1428,14 +1314,21 @@ protected
     end for;
 
     // greedy tearing, then try to remove every tear variable again, biggest first
-    (tears, _, _, _, _, _) := cellierCausalize(fixed, true, adj, vars, eqns, eqn_glob, eqn_rows, solvabilities, unit_kind, var_slices, block_in, block_out, funcMap, probes);
-    for t in List.sort(tears, function cellierSizeLess(var_slices = var_slices)) loop
-      if not listMember(t, fixed) then
-        trial := list(i for i guard(i <> t) in tears);
-        (_, _, _, _, _, complete) := cellierCausalize(trial, false, adj, vars, eqns, eqn_glob, eqn_rows, solvabilities, unit_kind, var_slices, block_in, block_out, funcMap, probes);
-        if complete then tears := trial; end if;
-      end if;
-    end for;
+    if guru then
+      (_, _, _, _, _, complete) := cellierCausalize(fixed, false, adj, vars, eqns, eqn_glob, eqn_rows, solvabilities, unit_kind, var_slices, block_in, block_out, funcMap, probes);
+    end if;
+    if guru and complete then
+      tears := fixed;
+    else
+      (tears, _, _, _, _, _) := cellierCausalize(fixed, true, adj, vars, eqns, eqn_glob, eqn_rows, solvabilities, unit_kind, var_slices, block_in, block_out, funcMap, probes);
+      for t in List.sort(tears, function cellierSizeLess(var_slices = var_slices)) loop
+        if not listMember(t, fixed) then
+          trial := list(i for i guard(i <> t) in tears);
+          (_, _, _, _, _, complete) := cellierCausalize(trial, false, adj, vars, eqns, eqn_glob, eqn_rows, solvabilities, unit_kind, var_slices, block_in, block_out, funcMap, probes);
+          if complete then tears := trial; end if;
+        end if;
+      end for;
+    end if;
     (tears, eqn_step, eqn_units, row_var, block_step, complete) := cellierCausalize(tears, false, adj, vars, eqns, eqn_glob, eqn_rows, solvabilities, unit_kind, var_slices, block_in, block_out, funcMap, probes);
 
     if not complete or Array.all(eqn_step, function intEq(i2 = 0)) then
