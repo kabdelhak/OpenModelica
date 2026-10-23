@@ -1,0 +1,124 @@
+// name: RecordFieldAlias
+// keywords: NewBackend
+// status: correct
+//
+// Record fields are aliases of other variables (state.X = X with an inlined record function), the
+// kept variable gets their nominal. g(state) uses the record of the replaced fields.
+
+loadString("
+package RecordFieldAlias
+  record S Real p; Real X[2](each nominal = 0.1); end S;
+  function f input Real p; input Real X[:]; output S s; algorithm s := S(p, X); annotation(Inline = true); end f;
+  function g input S s; output Real y; algorithm y := s.p + s.X[1] * s.X[2]; annotation(Inline = false); end g;
+  model C
+    Real X[2];
+    S state;
+    Real p;
+    Real y;
+  equation
+    state = f(p, X);
+    X = {sin(time), cos(time)};
+    p = time^2;
+    y = g(state);
+  end C;
+  model Top C c[3]; C d; end Top;
+end RecordFieldAlias;
+"); getErrorString();
+
+setCommandLineOptions("--newBackend -d=dumprepl"); getErrorString();
+simulate(RecordFieldAlias.Top, simflags = "-lv=-LOG_STDOUT"); getErrorString();
+val(c[2].y, 0.5);
+val(d.y, 0.5);
+regexBool(readFile("RecordFieldAlias.Top_init.xml"), "name = \"d.X\\[1\\]\"[^>]*>\n *<Real[^>]*nominal=\"0.1\"");
+
+// Result:
+// true
+// ""
+// true
+// ""
+// =====================================
+//   [dumprepl] Simulation Alias Sets:
+// =====================================
+//
+// Alias Set 1:
+// **************
+// 	<No Constant/Parameter Binding>
+// 	### Set Equations:
+// 	[ARRY] (6) $FUN_1.X = c.X; ($RES_SIM_32)
+// 	[ARRY] (6) c.state.X = $FUN_1.X; ($RES_SIM_22)
+//
+// Alias Set 2:
+// **************
+// 	<No Constant/Parameter Binding>
+// 	### Set Equations:
+// 	[ARRY] (3) $FUN_1.p = c.p; ($RES_SIM_30)
+// 	[ARRY] (3) c.state.p = $FUN_1.p; ($RES_SIM_20)
+//
+// Alias Set 3:
+// **************
+// 	<No Constant/Parameter Binding>
+// 	### Set Equations:
+// 	[SCAL] (1) d.y = $FUN_6; ($RES_SIM_0)
+//
+// Alias Set 4:
+// **************
+// 	<No Constant/Parameter Binding>
+// 	### Set Equations:
+// 	[ARRY] (2) $FUN_5.X = d.X; ($RES_SIM_35)
+// 	[ARRY] (2) d.state.X = $FUN_5.X; ($RES_SIM_37)
+//
+// Alias Set 5:
+// **************
+// 	<No Constant/Parameter Binding>
+// 	### Set Equations:
+// 	[SCAL] (1) $FUN_5.p = d.p; ($RES_SIM_34)
+// 	[SCAL] (1) d.state.p = $FUN_5.p; ($RES_SIM_36)
+//
+// Alias Set 6:
+// **************
+// 	<No Constant/Parameter Binding>
+// 	### Set Equations:
+// 	[ARRY] (3) c.y = $FUN_4; ($RES_SIM_4)
+//
+// [dumprepl] Constant Replacements:
+// ***********************************
+// [dumprepl] Trivial Alias Replacements:
+// ****************************************
+// 	$FUN_1.X	 ==> 	c.X
+// 	c.state.X	 ==> 	c.X
+// 	$FUN_1.p	 ==> 	c.p
+// 	c.state.p	 ==> 	c.p
+// 	$FUN_6	 ==> 	d.y
+// 	$FUN_5.X	 ==> 	d.X
+// 	d.state.X	 ==> 	d.X
+// 	$FUN_5.p	 ==> 	d.p
+// 	d.state.p	 ==> 	d.p
+// 	$FUN_4	 ==> 	c.y
+// [dumprepl] Nontrivial Alias Replacements:
+// *******************************************
+//
+// ==================================
+//   [dumprepl] Clocked Alias Sets:
+// ==================================
+//
+// <No Clocked Alias Sets>
+//
+// [dumprepl] Constant Replacements:
+// ***********************************
+// [dumprepl] Trivial Alias Replacements:
+// ****************************************
+// [dumprepl] Nontrivial Alias Replacements:
+// *******************************************
+//
+// record SimulationResult
+//     resultFile = "RecordFieldAlias.Top_res.mat",
+//     simulationOptions = "startTime = 0.0, stopTime = 1.0, numberOfIntervals = 500, tolerance = 1e-6, method = 'dassl', fileNamePrefix = 'RecordFieldAlias.Top', options = '', outputFormat = 'mat', variableFilter = '.*', cflags = '', simflags = '-lv=-LOG_STDOUT'",
+//     messages = "LOG_SUCCESS       | info    | The initialization finished successfully without homotopy method.
+// LOG_SUCCESS       | info    | The simulation finished successfully.
+// "
+// end SimulationResult;
+// ""
+// 0.6707354924039483
+// 0.6707354924039483
+// true
+// endResult
