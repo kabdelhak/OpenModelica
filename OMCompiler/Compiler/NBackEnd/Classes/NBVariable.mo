@@ -1087,6 +1087,21 @@ function isJacobianResultVar
     end match;
   end setMin;
 
+  function setNominal
+    input output Variable var;
+    input Expression nominal_val;
+    input Boolean overwrite = false;
+  algorithm
+    var := match var
+      local
+        BackendExtension.BackendInfo backendinfo;
+      case NFVariable.VARIABLE(backendinfo = backendinfo as BackendExtension.BACKEND_INFO()) algorithm
+        backendinfo.attributes := BackendExtension.VariableAttributes.setNominal(backendinfo.attributes, nominal_val, overwrite);
+        var.backendinfo := backendinfo;
+      then var;
+    end match;
+  end setNominal;
+
   function setMax
     input output Variable var;
     input Option<Expression> max_val;
@@ -1226,6 +1241,19 @@ function isJacobianResultVar
   algorithm
     b := StringUtil.startsWith(ComponentRef.firstName(getVarName(var_ptr)), FUNCTION_STR);
   end isFunctionAlias;
+
+  function isFunctionAliasOrElement
+    "true for function alias variables and the elements of function alias records"
+    input Pointer<Variable> var_ptr;
+    output Boolean b;
+  algorithm
+    b := match getParent(var_ptr)
+      local
+        Pointer<Variable> parent;
+      case SOME(parent) then isFunctionAliasOrElement(parent);
+      else isFunctionAlias(var_ptr);
+    end match;
+  end isFunctionAliasOrElement;
 
   function isClockAlias
     extends checkVar;

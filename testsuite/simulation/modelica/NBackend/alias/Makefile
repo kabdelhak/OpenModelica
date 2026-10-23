@@ -15,6 +15,7 @@ ArrayAlias1.mos \
 ArrayAlias2.mos \
 ArrayAliasSizeOne.mos \
 ForEquationAlias.mos \
+RecordFieldAlias.mos \
 Alias_pre.mos \
 AliasCyclic.mos \
 AliasCyclic1.mos \

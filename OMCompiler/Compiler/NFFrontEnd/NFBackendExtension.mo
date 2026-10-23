@@ -738,6 +738,19 @@ public
       end match;
     end setMin;
 
+    function setNominal
+      input output VariableAttributes attributes;
+      input Expression nominal_val;
+      input Boolean overwrite = false;
+    algorithm
+      attributes := match attributes
+        case VAR_ATTR_REAL() guard(overwrite or isNone(attributes.nominal)) algorithm
+          attributes.nominal := SOME(expToGeneratedBinding(nominal_val));
+        then attributes;
+        else attributes;
+      end match;
+    end setNominal;
+
     function setMax
       input output VariableAttributes attributes;
       input Option<Expression> max_val;
