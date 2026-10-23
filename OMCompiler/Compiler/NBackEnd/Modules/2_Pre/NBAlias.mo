@@ -249,6 +249,7 @@ protected
           // 5. save replacements in bindings of alias variables
           // -----------------------------------
           (eqData, varData) := Replacements.applySimple(eqData, varData, replacements);
+          replaceAliasRecords(eqData, replacements);
           alias_vars := list(BVariable.getVarPointer(cref, sourceInfo()) for cref in UnorderedMap.keyList(replacements));
 
           // update record variability and flatten to record children
@@ -759,6 +760,7 @@ protected
           // 5. save replacements in bindings of alias variables
           // -----------------------------------
           (eqData, varData) := Replacements.applySimple(eqData, varData, replacements);
+          replaceAliasRecords(eqData, replacements);
           alias_vars := list(BVariable.getVarPointer(cref, sourceInfo()) for cref in UnorderedMap.keyList(replacements));
 
           // save new equations and compress affected arrays(some might have been removed)
@@ -799,7 +801,7 @@ protected
     // collect (cref) -> (simpleSet) hashtable
     size := VariablePointers.size(variables);
     map := UnorderedMap.new<SetPtr>(ComponentRef.hash, ComponentRef.isEqual, size);
-    (newEquations, map) := NBEquation.EquationPointers.foldRemovePtr(equations, findSimpleEquation, map);
+    (newEquations, map) := NBEquation.EquationPointers.foldRemovePtr(equations, function findSimpleEquation(index = index), map);
 
     sets := getSimpleSets(map, size);
     if Flags.isSet(Flags.DUMP_REPL) then
@@ -829,32 +831,25 @@ protected
     "Checks if the equation is simple and adds it to the correct set in the hashTable."
     input Pointer<Equation> eq_ptr;
     input output UnorderedMap<ComponentRef, SetPtr> map;
+    input Pointer<Integer> index;
     output Boolean delete = false;
   protected
     Equation eq;
-    CrefTpl crefTpl = EMPTY_CREF_TPL;
+    CrefTpl crefTpl;
+    list<Pointer<Equation>> field_eqs;
   algorithm
+    // record equalities are split into their fields, so that the fields can be aliases of other variables
+    field_eqs := splitRecordEquality(Pointer.access(eq_ptr), index);
+    if not listEmpty(field_eqs) and List.all(field_eqs, function isSimpleAlias(index = index)) then
+      for field_eq in field_eqs loop
+        (map, _) := findSimpleEquation(field_eq, map, index);
+      end for;
+      delete := true;
+      return;
+    end if;
+
     eq := forToFullArrayEquation(Pointer.access(eq_ptr));
-    crefTpl := match eq
-      case BEquation.SCALAR_EQUATION() guard(isSimpleExp(eq.lhs) and isSimpleExp(eq.rhs)) algorithm
-        crefTpl := Expression.fold(eq.rhs, findCrefs, crefTpl);
-        crefTpl := Expression.fold(eq.lhs, findCrefs, crefTpl);
-      then crefTpl;
-
-      // an array variable and a scalar are not aliases, even if the array has only one element:
-      // replacing the array by the scalar breaks the array expressions it is used in
-      case BEquation.ARRAY_EQUATION() guard(isSimpleExp(eq.lhs) and isSimpleExp(eq.rhs) and sameArrayness(eq.lhs, eq.rhs)) algorithm
-        crefTpl := Expression.fold(eq.rhs, findCrefs, crefTpl);
-        crefTpl := Expression.fold(eq.lhs, findCrefs, crefTpl);
-      then crefTpl;
-
-      case BEquation.RECORD_EQUATION() guard(isSimpleExp(eq.lhs) and isSimpleExp(eq.rhs)) algorithm
-        crefTpl := Expression.fold(eq.rhs, findCrefs, crefTpl);
-        crefTpl := Expression.fold(eq.lhs, findCrefs, crefTpl);
-      then crefTpl;
-
-      else crefTpl;
-    end match;
+    crefTpl := simpleCrefs(eq);
 
     (map, delete) := match crefTpl
       local
@@ -983,6 +978,166 @@ protected
       else (map, false);
     end match;
   end findSimpleEquation;
+
+  function simpleCrefs
+    "collects the variable crefs of a simple equation"
+    input Equation eq;
+    output CrefTpl crefTpl = EMPTY_CREF_TPL;
+  algorithm
+    crefTpl := match eq
+      case BEquation.SCALAR_EQUATION() guard(isSimpleExp(eq.lhs) and isSimpleExp(eq.rhs)) algorithm
+        crefTpl := Expression.fold(eq.rhs, findCrefs, crefTpl);
+        crefTpl := Expression.fold(eq.lhs, findCrefs, crefTpl);
+      then crefTpl;
+
+      // an array variable and a scalar are not aliases, even if the array has only one element:
+      // replacing the array by the scalar breaks the array expressions it is used in
+      case BEquation.ARRAY_EQUATION() guard(isSimpleExp(eq.lhs) and isSimpleExp(eq.rhs) and sameArrayness(eq.lhs, eq.rhs)) algorithm
+        crefTpl := Expression.fold(eq.rhs, findCrefs, crefTpl);
+        crefTpl := Expression.fold(eq.lhs, findCrefs, crefTpl);
+      then crefTpl;
+
+      case BEquation.RECORD_EQUATION() guard(isSimpleExp(eq.lhs) and isSimpleExp(eq.rhs)) algorithm
+        crefTpl := Expression.fold(eq.rhs, findCrefs, crefTpl);
+        crefTpl := Expression.fold(eq.lhs, findCrefs, crefTpl);
+      then crefTpl;
+
+      else crefTpl;
+    end match;
+  end simpleCrefs;
+
+  function splitRecordEquality
+    "returns the equalities of the fields of a record equality a = b, or nothing if it is none"
+    input Equation eq;
+    input Pointer<Integer> index;
+    output list<Pointer<Equation>> field_eqs = {};
+  protected
+    ComponentRef cref1, cref2;
+    list<ComponentRef> children1, children2;
+  algorithm
+    () := match eq
+      case Equation.RECORD_EQUATION(lhs = Expression.CREF(cref = cref1), rhs = Expression.CREF(cref = cref2)) algorithm
+        children1 := BVariable.getRecordChildrenCref(cref1);
+        children2 := BVariable.getRecordChildrenCref(cref2);
+        if not listEmpty(children1) and List.compareLength(children1, children2) == 0 then
+          field_eqs := list(Equation.makeAssignment(Expression.fromCref(c1), Expression.fromCref(c2), index,
+            NBEquation.SIMULATION_STR, Iterator.EMPTY(), eq.attr) threaded for c1 in children1, c2 in children2);
+        end if;
+      then ();
+      else ();
+    end match;
+  end splitRecordEquality;
+
+  function isSimpleAlias
+    "true if findSimpleEquation adds the equation to an alias set"
+    input Pointer<Equation> eq_ptr;
+    input Pointer<Integer> index;
+    output Boolean b;
+  protected
+    list<Pointer<Equation>> field_eqs = splitRecordEquality(Pointer.access(eq_ptr), index);
+  algorithm
+    if listEmpty(field_eqs) then
+      b := match simpleCrefs(forToFullArrayEquation(Pointer.access(eq_ptr)))
+        case CREF_TPL(cr_lst = {_}) then true;
+        case CREF_TPL(cr_lst = {_, _}) then true;
+        else false;
+      end match;
+    else
+      b := List.all(field_eqs, function isSimpleAlias(index = index));
+    end if;
+  end isSimpleAlias;
+
+  function replaceAliasRecords
+    "replaces records with replaced fields by the record of the replacements (updates the equation pointers)"
+    input EqData eqData;
+    input UnorderedMap<ComponentRef, Expression> replacements;
+  protected
+    UnorderedMap<ComponentRef, Expression> records = UnorderedMap.new<Expression>(ComponentRef.hash, ComponentRef.isEqual);
+    Option<Pointer<Variable>> parent;
+    Pointer<Variable> record_var;
+  algorithm
+    for cref in UnorderedMap.keyList(replacements) loop
+      parent := BVariable.getParent(BVariable.getVarPointer(cref, sourceInfo()));
+      while isSome(parent) loop
+        SOME(record_var) := parent;
+        UnorderedMap.tryAdd(BVariable.getVarName(record_var), recordReplacement(record_var, replacements), records);
+        parent := BVariable.getParent(record_var);
+      end while;
+    end for;
+    if not UnorderedMap.isEmpty(records) then
+      _ := EqData.mapExp(eqData, function replaceRecordCref(records = records));
+    end if;
+  end replaceAliasRecords;
+
+  function recordReplacement
+    "the record of the replaced fields, or the record whose fields they all are"
+    input Pointer<Variable> var;
+    input UnorderedMap<ComponentRef, Expression> replacements;
+    output Expression exp;
+  protected
+    ComponentRef name = BVariable.getVarName(var);
+    list<Pointer<Variable>> children = BVariable.getRecordChildren(var);
+    list<Expression> elements;
+    ComponentRef cref;
+    Pointer<Variable> record_var;
+    Type ty;
+  algorithm
+    if listEmpty(children) then
+      exp := UnorderedMap.getOrDefault(name, replacements, Expression.fromCref(name));
+      return;
+    end if;
+    elements := list(recordReplacement(child, replacements) for child in children);
+    exp := Expression.EMPTY(Type.UNKNOWN());
+    try
+      // all fields are the fields of one record
+      Expression.CREF(cref = cref) :: _ := elements;
+      cref := ComponentRef.rest(cref);
+      true := InstNode.isVar(ComponentRef.node(cref));
+      record_var := BVariable.getVarPointer(cref, sourceInfo());
+      true := List.isEqualOnTrue(list(Expression.fromCref(BVariable.getVarName(c)) for c in BVariable.getRecordChildren(record_var)), elements, Expression.isEqual);
+      exp := Expression.fromCref(BVariable.getVarName(record_var));
+    else
+      ty := Variable.typeOf(Pointer.access(var));
+      exp := Expression.RECORD(InstNode.fullPath(Type.complexNode(Type.arrayElementType(ty))), ty, elements);
+    end try;
+  end recordReplacement;
+
+  function replaceRecordCref
+    input output Expression exp;
+    input UnorderedMap<ComponentRef, Expression> records;
+  protected
+    Option<Expression> record_exp;
+    list<Subscript> subs;
+  algorithm
+    exp := match exp
+      case Expression.CREF() algorithm
+        record_exp := UnorderedMap.get(ComponentRef.stripSubscriptsAll(exp.cref), records);
+        if isSome(record_exp) then
+          subs := ComponentRef.subscriptsAllFlat(exp.cref);
+          record_exp := subscriptRecord(Util.getOption(record_exp), subs);
+        end if;
+      then Util.getOptionOrDefault(record_exp, exp);
+      else exp;
+    end match;
+  end replaceRecordCref;
+
+  function subscriptRecord
+    "applies the subscripts of a record cref to its replacement. records of fields only for
+    scalar records or all dimensions subscripted by indices"
+    input Expression exp;
+    input list<Subscript> subs;
+    output Option<Expression> sub_exp;
+  protected
+    list<Option<Expression>> elements;
+  algorithm
+    sub_exp := match exp
+      case Expression.RECORD() guard(listLength(subs) == Type.dimensionCount(exp.ty) and List.all(subs, Subscript.isIndex)) algorithm
+        elements := list(subscriptRecord(e, subs) for e in exp.elements);
+      then if List.all(elements, isSome) then SOME(Expression.RECORD(exp.path, Type.arrayElementType(exp.ty), list(Util.getOption(e) for e in elements))) else NONE();
+      case Expression.RECORD() then NONE();
+      else SOME(Expression.applySubscripts(subs, exp, true));
+    end match;
+  end subscriptRecord;
 
   function forToFullArrayEquation
     "Converts a for equation into the array equation of the full variables if it is
@@ -1149,11 +1304,6 @@ protected
       case Expression.CREF()
         guard(BVariable.isParamOrConst(BVariable.getVarPointer(exp.cref, sourceInfo())) or ComponentRef.isTime(exp.cref))
       then tpl;
-
-      // fail for record elements for now
-      case Expression.CREF()
-        guard(isSome(BVariable.getParent(BVariable.getVarPointer(exp.cref, sourceInfo()))))
-      then FAILED_CREF_TPL;
 
       // fail for top level inputs
       case Expression.CREF()
@@ -1420,6 +1570,7 @@ protected
     Option<TearingSelect> new_tearingSelect;
     Pointer<Variable> fixed_var, var_to_keep = Pointer.access(var_to_keep_ptr);
     UnorderedMap<ComponentRef, Expression> fixed_start_map;
+    list<Expression> nominals;
   algorithm
   // function calls of different set functions in NBVariable.mo
     new_min := getMaximum(attrcollector.min_val_map);
@@ -1451,6 +1602,11 @@ protected
       UnorderedMap.add(BVariable.getVarName(var_to_keep), Expression.BOOLEAN(true), attrcollector.fixed_map); // update attribute collector
       Pointer.update(var_to_keep, BVariable.setStartAttribute(Pointer.access(var_to_keep), Util.getOption(new_start), true));
       UnorderedMap.add(BVariable.getVarName(var_to_keep), Util.getOption(new_start), attrcollector.start_map); // update attribute collector
+    end if;
+    // the kept variable keeps its own nominal, otherwise the aliases have to agree on one
+    nominals := List.uniqueOnTrue(UnorderedMap.valueList(attrcollector.nominal_map), Expression.isEqual);
+    if not UnorderedMap.contains(BVariable.getVarName(var_to_keep), attrcollector.nominal_map) and List.hasOneElement(nominals) then
+      Pointer.update(var_to_keep, BVariable.setNominal(Pointer.access(var_to_keep), listHead(nominals)));
     end if;
     (new_cref, new_stateSelect) := chooseStateSelect(attrcollector.stateSelect_map);
     if isSome(new_stateSelect) and isSome(UnorderedMap.get(BVariable.getVarName(var_to_keep),attrcollector.stateSelect_map)) then // only update stateSelect value, if var_to_keep has a stateSelect value
@@ -1917,7 +2073,9 @@ protected
   algorithm
     b := match exp
       case Expression.CALL()            then true;
-      case Expression.RECORD_ELEMENT()  then Expression.isCall(exp.recordExp);
+      // inlined record functions
+      case Expression.RECORD()          then true;
+      case Expression.RECORD_ELEMENT()  then isAuxStart(exp.recordExp);
       case Expression.TUPLE_ELEMENT()   then Expression.isCall(exp.tupleExp);
       // the start value of a call in a for equation with an array result
       case Expression.ARRAY()           then Array.all(exp.elements, isAuxStart);
@@ -1936,7 +2094,7 @@ protected
     if isSome(attr_start) then
       SOME(start_b) := attr_start;
       // the generated start values of function alias variables (see NBFunctionAlias) are only guesses
-      if not (BVariable.isFunctionAlias(var_ptr) and Binding.source(start_b) == NFBinding.Source.GENERATED and isAuxStart(Binding.getTypedExp(start_b))) then
+      if not (BVariable.isFunctionAliasOrElement(var_ptr) and Binding.source(start_b) == NFBinding.Source.GENERATED and isAuxStart(Binding.getTypedExp(start_b))) then
         UnorderedMap.add(BVariable.getVarName(var_ptr), Binding.getTypedExp(start_b), attrcollector.start_map);
         UnorderedMap.add(BVariable.getVarName(var_ptr), start_b, attrcollector.start_binding_map);
       end if;
@@ -1958,7 +2116,7 @@ protected
     StateSelect stateSelect_val;
     TearingSelect tearingSelect_val;
   algorithm
-    if BVariable.isFunctionAlias(var_ptr) or BVariable.isClockAlias(var_ptr) then
+    if BVariable.isFunctionAliasOrElement(var_ptr) or BVariable.isClockAlias(var_ptr) then
       rating := -10000;
     else
       name := BVariable.getVarName(var_ptr);
