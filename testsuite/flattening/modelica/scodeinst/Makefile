@@ -1293,6 +1293,8 @@ WhenVariability2.mo \
 WhenVariableMismatch1.mo \
 WhenVariableMismatch2.mo \
 WhenVariableMismatch3.mo \
+WhenVariableMismatch4.mo \
+WhenVariableMismatch5.mo \
 Wild1.mo \
 OCGTests.mos \
 sts.mos \

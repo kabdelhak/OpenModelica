@@ -144,11 +144,7 @@ protected
     list<Equation.Branch> rest_branches;
     list<Equation> body;
   algorithm
-    // Only when-equation with more than one branch needs to be checked.
-    if List.hasOneElement(branches) then
-      return;
-    end if;
-
+    // also checks the if-equations of the branches
     Equation.Branch.BRANCH(body = body) :: rest_branches := branches;
     crefs1 := whenEquationBranchCrefs(body);
 
@@ -186,6 +182,7 @@ protected
       case Expression.CREF() then lhsExp.cref :: crefs;
       case Expression.TUPLE()
         then List.fold(lhsExp.elements, whenEquationEqualityCrefs, crefs);
+      else crefs;
     end match;
   end whenEquationEqualityCrefs;
 
@@ -199,9 +196,17 @@ protected
     list<ComponentRef> crefs1, crefs2;
     list<Equation.Branch> rest_branches;
     list<Equation> body;
+    Expression condition;
   algorithm
     Equation.Branch.BRANCH(body = body) :: rest_branches := branches;
     crefs1 := whenEquationBranchCrefs(body);
+
+    // without an else branch the variables are not assigned if no condition is true
+    Equation.Branch.BRANCH(condition = condition) := List.last(branches);
+    if not listEmpty(crefs1) and not Expression.isTrue(condition) then
+      Error.addSourceMessage(Error.IF_EQUATION_MISSING_ELSE, {}, ElementSource.getInfo(source));
+      fail();
+    end if;
 
     for branch in rest_branches loop
       Equation.Branch.BRANCH(body = body) := branch;

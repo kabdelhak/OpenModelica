@@ -1821,9 +1821,17 @@ protected
     ComponentRef cref;
     Expression rhs, condition;
   algorithm
-    // traverse in reverse to create innermost first, the condition of the last branch is not needed
+    // traverse in reverse to create innermost first, the last branch has to be the else branch
     branch_assignments := list(lowerWhenIfBranch(branch) for branch in listReverse(branches));
-    _ :: conditions := list(lowerWhenIfCondition(branch) for branch in listReverse(branches));
+    if List.all(branch_assignments, listEmpty) then
+      assignments := {};
+      return;
+    end if;
+    condition :: conditions := list(lowerWhenIfCondition(branch) for branch in listReverse(branches));
+    if not Expression.isTrue(condition) then
+      Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because an if-equation inside a when-equation has no else branch."});
+      fail();
+    end if;
 
     // e.g. slices in one branch and the whole array in another one
     if not List.all(branch_assignments, function sameAssignedCrefs(other = listHead(branch_assignments))) then
