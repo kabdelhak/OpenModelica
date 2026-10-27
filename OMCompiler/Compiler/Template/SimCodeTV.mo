@@ -713,6 +713,10 @@ end SparsityRow;
       Integer index;
       list<Integer> call_order;
       list<SimEqSystem> single_calls;
+      Integer direction;
+      list<Integer> offsets;
+      list<Integer> start_shifts "per single call: its first iteration is the start of its range plus this";
+      list<Integer> stop_shifts "per single call: its last iteration is the stop of its range minus this";
       DAE.ElementSource source;
       BackendDAE.EquationAttributes eqAttr;
     end SES_ENTWINED_ASSIGN;
@@ -1560,6 +1564,11 @@ package SimCodeCodegenUtil
     input SimCodeVar.SimVar var;
     output DAE.Exp exp;
   end simVarSizeExp;
+
+  function typeSizeExp
+    input DAE.Type ty;
+    output DAE.Exp exp;
+  end typeSizeExp;
 
   function simVarDimExps
     input SimCodeVar.SimVar var;

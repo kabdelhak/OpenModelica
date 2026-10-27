@@ -3816,14 +3816,27 @@ template generateStaticInitialData(list<ComponentRef> crefs, String indexName, S
   let bodyStaticData = (crefs |> cr hasindex i0 =>
     let cComment = '/* static nls data for <%crefStrNoUnderscore(cr)%> */'
     if nlsResizableCref(cr) then
-        <<
-        <%cComment%>
-        for (k_ = 0; k_ < <%nlsCount(cr)%>; k_++) {
-          sysData->nominal[i] = 1.0;
-          sysData->min[i]     = -DBL_MAX;
-          sysData->max[i++]   = DBL_MAX;
-        }
-        >>
+      match cref2simvar(crefRemovePrePrefix(cr), getSimCode())
+        case v as SIMVAR(type_=T_REAL(__)) then
+          let kind = lsVarKind(v)
+          let first = realScalarIndex(v)
+          <<
+          <%cComment%>
+          for (k_ = 0; k_ < <%nlsCount(cr)%>; k_++) {
+            sysData->nominal[i] = getNominalFromScalarIdx(data->simulationInfo, data->modelData, <%kind%>, <%first%> + k_);
+            sysData->min[i]     = getMinFromScalarIdx(data->simulationInfo, data->modelData, VAR_TYPE_REAL, <%kind%>, <%first%> + k_);
+            sysData->max[i++]   = getMaxFromScalarIdx(data->simulationInfo, data->modelData, VAR_TYPE_REAL, <%kind%>, <%first%> + k_);
+          }
+          >>
+        else
+          <<
+          <%cComment%>
+          for (k_ = 0; k_ < <%nlsCount(cr)%>; k_++) {
+            sysData->nominal[i] = 1.0;
+            sysData->min[i]     = -DBL_MAX;
+            sysData->max[i++]   = DBL_MAX;
+          }
+          >>
     else
     match cref2simvar(crefRemovePrePrefix(cr), getSimCode())
       case SIMVAR(type_=T_REAL(__)) then
@@ -3901,6 +3914,14 @@ template nlsResizable(list<ComponentRef> crefs)
  "non-empty if an iteration variable of an algebraic loop is a whole resizable array"
 ::= (crefs |> cr => match cref2simvar(cr, getSimCode()) case v as SIMVAR(__) then if isWholeResizableArray(cr, v) then "1" ;separator="")
 end nlsResizable;
+
+template realScalarIndex(SimVar var)
+ "the scalar index of the first element of a real variable at runtime"
+::=
+  match var
+    case SIMVAR(varKind=PARAM()) then 'data->simulationInfo->realParamsIndex[<%index%>]'
+    case SIMVAR(__) then 'data->simulationInfo->realVarsIndex[<%index%>]'
+end realScalarIndex;
 
 template nlsResizableCref(ComponentRef cr)
 ::= match cref2simvar(cr, getSimCode()) case v as SIMVAR(__) then if isWholeResizableArray(cr, v) then "1"
@@ -8551,7 +8572,7 @@ template equationEntwinedAssign(SimEqSystem eq, Context context,
 <%modelicaLine(eqInfo(eq))%>
 <%match eq
 
-case eqn as SES_ENTWINED_ASSIGN() then
+case eqn as SES_ENTWINED_ASSIGN(direction = 0) then
   let call_num = listLength(single_calls)
   let call_order_len = listLength(call_order)
   <<
@@ -8569,10 +8590,66 @@ case eqn as SES_ENTWINED_ASSIGN() then
     }
   }
   >>
+case eqn as SES_ENTWINED_ASSIGN() then
+  let &preExp = buffer ""
+  let ranges = (eqn.single_calls |> call hasindex i0 => entwinedRange(call, i0, listGet(eqn.start_shifts, intAdd(i0, 1)), listGet(eqn.stop_shifts, intAdd(i0, 1)), context, &preExp, &varDecls, &varFrees, &auxFunction); separator="\n")
+  let periods = (eqn.call_order |> c hasindex i0 => entwinedPeriods(c, listGet(eqn.offsets, intAdd(i0, 1)), eqn.direction); separator="\n")
+  let calls = (eqn.call_order |> c hasindex i0 => entwinedResizableCall(listGet(eqn.single_calls, intAdd(c, 1)), c, listGet(eqn.offsets, intAdd(i0, 1)), eqn.direction, context); separator="\n")
+  <<
+  <%preExp%>
+  <%ranges%>
+  modelica_integer k_lo = 0, k_hi = -1, i_;
+  <%periods%>
+  for(modelica_integer k_ = k_lo; k_ <= k_hi; k_++)
+  {
+    <%calls%>
+  }
+  >>
 %>
 <%endModelicaLine()%>
 >>
 end equationEntwinedAssign;
+
+template entwinedRange(SimEqSystem eq, Integer i0, Integer start_shift, Integer stop_shift, Context context, Text &preExp, Text &varDecls, Text &varFrees, Text &auxFunction)
+ "the first and last iteration of a resizable entwined call at runtime"
+::=
+match eq
+case SES_RESIZABLE_ASSIGN(iters = {SIM_ITERATOR_RANGE(start = start, stop = stop)}) then
+  let start_ = daeExp(start, context, &preExp, &varDecls, &varFrees, &auxFunction)
+  let stop_ = daeExp(stop, context, &preExp, &varDecls, &varFrees, &auxFunction)
+  'const modelica_integer lo_<%i0%> = (<%start_%>) + <%start_shift%>, hi_<%i0%> = (<%stop_%>) - <%stop_shift%>;'
+else
+  error(sourceInfo(), 'entwinedRange: unhandled equation type')
+end entwinedRange;
+
+template entwinedPeriods(Integer c, Integer offset, Integer direction)
+ "widens the periods k_lo:k_hi to every iteration of call c, the calls check their bounds"
+::=
+<<
+if(lo_<%c%> <= hi_<%c%>) {
+  modelica_integer a_ = (lo_<%c%> - (<%offset%>))/(<%direction%>), b_ = (hi_<%c%> - (<%offset%>))/(<%direction%>);
+  if(a_ > b_) { modelica_integer t_ = a_; a_ = b_; b_ = t_; }
+  a_--; b_++;
+  if(k_lo > k_hi) { k_lo = a_; k_hi = b_; }
+  else { if(a_ < k_lo) k_lo = a_; if(b_ > k_hi) k_hi = b_; }
+}
+>>
+end entwinedPeriods;
+
+template entwinedResizableCall(SimEqSystem eq, Integer c, Integer offset, Integer direction, Context context)
+ "calls a resizable entwined equation for period k_ if the iteration exists"
+::=
+match eq
+case SES_RESIZABLE_ASSIGN() then
+  let jac = match context case JACOBIAN_CONTEXT() then ", jacobian" else ""
+  let sub_name = match context case JACOBIAN_CONTEXT(name = jac_name) then 'jac_<%jac_name%>_' else ""
+  <<
+  i_ = <%direction%>*k_ + (<%offset%>);
+  if(i_ >= lo_<%c%> && i_ <= hi_<%c%>) genericCall_<%sub_name%><%call_index%>(data, threadData<%jac%>, equationIndexes, i_);
+  >>
+else
+  error(sourceInfo(), 'entwinedResizableCall: unhandled equation type')
+end entwinedResizableCall;
 
 template entwinedSingleCallIndices(SimEqSystem eq, Context context,
                                  Text &varDecls, Text &varFrees, Text &auxFunction, String modelNamePrefix)

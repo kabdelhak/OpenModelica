@@ -72,6 +72,141 @@ pub(crate) fn emit_entwined_assign(
     Ok(())
 }
 
+/// `SES_ENTWINED_ASSIGN` with a `direction`: `call_order` is one period `k` and
+/// each call runs its equation's body for `i = direction * k + offset` if `i` is
+/// within its bounds, like `CodegenC.tpl:equationEntwinedAssign`.
+pub(crate) fn emit_resizable_entwined_assign(
+    ctx: &mut FnCtx,
+    call_order: &List<i32>,
+    single_calls: &List<metamodelica::Ref<SimCode::SimEqSystem>>,
+    direction: i32,
+    offsets: &List<i32>,
+    start_shifts: &List<i32>,
+    stop_shifts: &List<i32>,
+) -> Result<()> {
+    use we::Instruction as I;
+    use SimCode::SimEqSystem as E;
+    let start_shifts: Vec<i32> = (&**start_shifts).into_iter().copied().collect();
+    let stop_shifts: Vec<i32> = (&**stop_shifts).into_iter().copied().collect();
+    // per single call: its body, iterator name and the locals of its bounds
+    let mut calls = Vec::new();
+    for (c, eq) in (&**single_calls).into_iter().enumerate() {
+        let E::SES_RESIZABLE_ASSIGN { call_index, iters, .. } = &**eq else {
+            return Err("CodegenWasmJit: resizable entwined call is no resizable assignment");
+        };
+        let iters: Vec<&BackendDAE::SimIterator> = (&**iters).into_iter().collect();
+        let [BackendDAE::SimIterator::SIM_ITERATOR_RANGE { name, start, stop, .. }] = iters.as_slice() else {
+            return Err("CodegenWasmJit: resizable entwined call needs a single range iterator");
+        };
+        let lo = ctx.alloc_temp(WTy::I32);
+        let hi = ctx.alloc_temp(WTy::I32);
+        let w = compile_exp(ctx, start)?;
+        coerce(ctx, w, WTy::I32);
+        ctx.emit(I::I32Const(*start_shifts.get(c).ok_or("CodegenWasmJit: missing entwined start shift")?));
+        ctx.emit(I::I32Add);
+        ctx.emit(I::LocalSet(lo));
+        let w = compile_exp(ctx, stop)?;
+        coerce(ctx, w, WTy::I32);
+        ctx.emit(I::I32Const(*stop_shifts.get(c).ok_or("CodegenWasmJit: missing entwined stop shift")?));
+        ctx.emit(I::I32Sub);
+        ctx.emit(I::LocalSet(hi));
+        calls.push((lookup_call(ctx, *call_index)?, (*name).clone(), lo, hi));
+    }
+    let period: Vec<(usize, i32)> = (&**call_order)
+        .into_iter()
+        .zip((&**offsets).into_iter())
+        .map(|(c, o)| usize::try_from(*c).map(|c| (c, *o)))
+        .collect::<std::result::Result<_, _>>()
+        .map_err(|_| "CodegenWasmJit: negative entwined call index")?;
+    if period.iter().any(|(c, _)| *c >= calls.len()) {
+        return Err("CodegenWasmJit: entwined call order names a missing call");
+    }
+
+    // the periods k_lo..k_hi cover every iteration, the calls check their bounds
+    let k_lo = ctx.alloc_temp(WTy::I32);
+    let k_hi = ctx.alloc_temp(WTy::I32);
+    let a = ctx.alloc_temp(WTy::I32);
+    let b = ctx.alloc_temp(WTy::I32);
+    let m = ctx.alloc_temp(WTy::I32);
+    ctx.emit(I::I32Const(i32::MAX));
+    ctx.emit(I::LocalSet(k_lo));
+    ctx.emit(I::I32Const(i32::MIN));
+    ctx.emit(I::LocalSet(k_hi));
+    for (c, o) in &period {
+        let (_, _, lo, hi) = &calls[*c];
+        ctx.emit(I::LocalGet(*lo));
+        ctx.emit(I::LocalGet(*hi));
+        ctx.emit(I::I32LeS);
+        ctx.emit(I::If(we::BlockType::Empty));
+        for (bound, local) in [(*lo, a), (*hi, b)] {
+            ctx.emit(I::LocalGet(bound));
+            ctx.emit(I::I32Const(*o));
+            ctx.emit(I::I32Sub);
+            ctx.emit(I::I32Const(direction));
+            ctx.emit(I::I32DivS);
+            ctx.emit(I::LocalSet(local));
+        }
+        // k_lo = min(k_lo, min(a, b) - 1), k_hi = max(k_hi, max(a, b) + 1)
+        for (target, less, delta) in [(k_lo, true, -1), (k_hi, false, 1)] {
+            let cmp = || if less { I::I32LtS } else { I::I32GtS };
+            ctx.emit(I::LocalGet(a));
+            ctx.emit(I::LocalGet(b));
+            ctx.emit(I::LocalGet(a));
+            ctx.emit(I::LocalGet(b));
+            ctx.emit(cmp());
+            ctx.emit(I::Select);
+            ctx.emit(I::I32Const(delta));
+            ctx.emit(I::I32Add);
+            ctx.emit(I::LocalSet(m));
+            ctx.emit(I::LocalGet(m));
+            ctx.emit(I::LocalGet(target));
+            ctx.emit(I::LocalGet(m));
+            ctx.emit(I::LocalGet(target));
+            ctx.emit(cmp());
+            ctx.emit(I::Select);
+            ctx.emit(I::LocalSet(target));
+        }
+        ctx.emit(I::End);
+    }
+
+    let k = k_lo;
+    let it = ctx.alloc_temp(WTy::I32);
+    ctx.emit(I::Block(we::BlockType::Empty));
+    ctx.emit(I::Loop(we::BlockType::Empty));
+    ctx.emit(I::LocalGet(k));
+    ctx.emit(I::LocalGet(k_hi));
+    ctx.emit(I::I32GtS);
+    ctx.emit(I::BrIf(1));
+    for (c, o) in &period {
+        let (call, name, lo, hi) = &calls[*c];
+        ctx.emit(I::LocalGet(k));
+        ctx.emit(I::I32Const(direction));
+        ctx.emit(I::I32Mul);
+        ctx.emit(I::I32Const(*o));
+        ctx.emit(I::I32Add);
+        ctx.emit(I::LocalTee(it));
+        ctx.emit(I::LocalGet(*lo));
+        ctx.emit(I::I32GeS);
+        ctx.emit(I::LocalGet(it));
+        ctx.emit(I::LocalGet(*hi));
+        ctx.emit(I::I32LeS);
+        ctx.emit(I::I32And);
+        ctx.emit(I::If(we::BlockType::Empty));
+        let bound = bind_iter(ctx, name, it, SigTy::Int)?;
+        emit_call_body(ctx, call)?;
+        unbind_iter(ctx, bound);
+        ctx.emit(I::End);
+    }
+    ctx.emit(I::LocalGet(k));
+    ctx.emit(I::I32Const(1));
+    ctx.emit(I::I32Add);
+    ctx.emit(I::LocalSet(k));
+    ctx.emit(I::Br(0));
+    ctx.emit(I::End); // loop
+    ctx.emit(I::End); // block
+    Ok(())
+}
+
 fn lookup_call(ctx: &FnCtx, call_index: i32) -> Result<SimCode::SimGenericCall> {
     ctx.sim()?
         .generic_calls
