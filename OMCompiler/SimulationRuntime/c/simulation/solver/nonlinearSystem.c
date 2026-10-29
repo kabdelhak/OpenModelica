@@ -821,13 +821,16 @@ void printNonLinearSystemSolvingStatistics(NONLINEAR_SYSTEM_DATA* nonlinsys, enu
 void printNonLinearInitialInfo(int logName, DATA* data, NONLINEAR_SYSTEM_DATA *nonlinsys)
 {
   long i;
+  EQUATION_INFO eqInfo;
 
   if (!OMC_ACTIVE_STREAM(logName)) return;
   infoStreamPrint(logName, 1, "initial variable values:");
 
+  /* a resizable system lists one name per array */
+  eqInfo = modelInfoGetEquation(&data->modelData->modelDataXml, nonlinsys->equationIndex);
   for(i=0; i<nonlinsys->size; i++)
     infoStreamPrint(logName, 0, "[%2ld] %30s  = %16.8g\t\t nom = %16.8g", i+1,
-                    modelInfoGetEquation(&data->modelData->modelDataXml,nonlinsys->equationIndex).vars[i],
+                    i < eqInfo.numVar && eqInfo.vars[i] ? eqInfo.vars[i] : "",
                     nonlinsys->nlsx[i], nonlinsys->nominal[i]);
   messageClose(logName);
 }
@@ -843,6 +846,7 @@ void printNonLinearInitialInfo(int logName, DATA* data, NONLINEAR_SYSTEM_DATA *n
 void printNonLinearFinishInfo(int logName, DATA* data, NONLINEAR_SYSTEM_DATA *nonlinsys)
 {
   long i;
+  EQUATION_INFO eqInfo;
 
   if (!OMC_ACTIVE_STREAM(logName)) return;
 
@@ -865,9 +869,10 @@ void printNonLinearFinishInfo(int logName, DATA* data, NONLINEAR_SYSTEM_DATA *no
   infoStreamPrint(logName, 0, " number of function evaluations : %ld", nonlinsys->numberOfFEval);
   infoStreamPrint(logName, 0, " number of jacobian evaluations : %ld", nonlinsys->numberOfJEval);
   infoStreamPrint(logName, 0, "solution values:");
+  eqInfo = modelInfoGetEquation(&data->modelData->modelDataXml, nonlinsys->equationIndex);
   for(i=0; i<nonlinsys->size; i++)
     infoStreamPrint(logName, 0, "[%2ld] %30s  = %16.8g", i+1,
-                    modelInfoGetEquation(&data->modelData->modelDataXml,nonlinsys->equationIndex).vars[i],
+                    i < eqInfo.numVar && eqInfo.vars[i] ? eqInfo.vars[i] : "",
                     nonlinsys->nlsx[i]);
 
   messageClose(logName);
