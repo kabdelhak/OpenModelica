@@ -502,7 +502,7 @@ protected
         SOME(full) := part.adjacencyMatrix;
         // with resizable arrays adjacent parts of the same loop are merged before
         // they are finalized (the last function), see mergeResizableLoops
-        resizable := Flags.getConfigBool(Flags.RESIZABLE_ARRAYS);
+        resizable := true;
         pre_funcs := if resizable then List.firstN(funcs, listLength(funcs) - 1) else funcs;
         for i in 1:arrayLength(strongComponents) loop
           // each module has a list of functions that need to be applied
@@ -516,7 +516,9 @@ protected
           end if;
         end for;
         if resizable then
-          strongComponents := mergeResizableLoops(strongComponents);
+          if Flags.getConfigBool(Flags.RESIZABLE_ARRAYS) then
+            strongComponents := mergeResizableLoops(strongComponents);
+          end if;
           fin := List.last(funcs);
           part_vars := Pointer.create({});
           comps := {};
@@ -595,7 +597,7 @@ protected
     Slice<VariablePointer> new_slice;
   algorithm
     dims := Type.arrayDims(var.ty);
-    if listEmpty(slice.indices) or not List.any(dims, Dimension.isResizable) or not Type.isReal(Type.arrayElementType(var.ty)) then
+    if listEmpty(slice.indices) or listEmpty(dims) or not Type.isReal(Type.arrayElementType(var.ty)) then
       return;
     end if;
 
@@ -973,7 +975,7 @@ protected
         // otherwise the jacobian can not differentiate them w.r.t. single elements of that variable.
         partial_vars := List.any(strict.iteration_vars, isPartialVarSlice);
         strict.residual_eqns  := list(Slice.apply(eqn, function Equation.createResidual(residualCref_opt = NONE(), new = true, allowFail = false))
-          for eqn in List.flatten(list(if isPartialArraySlice(eqn) or isArrayBodyFor(eqn) or (partial_vars and Equation.isSingleBodyFor(Pointer.access(Slice.getT(eqn))))
+          for eqn in List.flatten(list(if isPartialArraySlice(eqn) or isArrayBodyFor(eqn)
             then scalarSlices(eqn) else {eqn} for eqn in List.flatten(acc))));
         comp.strict := strict;
 
