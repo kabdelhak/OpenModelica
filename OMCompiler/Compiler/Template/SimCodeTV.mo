@@ -1757,6 +1757,11 @@ package SimCodeCodegenUtil
     output Integer n;
   end nVariablesReal;
 
+  function simVarIndexRuns
+    input list<SimCodeVar.SimVar> vars;
+    output list<tuple<Integer, Integer, Integer, Integer>> runs;
+  end simVarIndexRuns;
+
   function getSimCode
     output SimCode.SimCode code;
   end getSimCode;

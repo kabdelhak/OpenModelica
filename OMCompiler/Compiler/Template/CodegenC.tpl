@@ -2742,7 +2742,7 @@ template functionSetupLinearSystems(list<SimEqSystem> linearSystems, String mode
           let &varFreesRes = buffer ""
           let &auxFunction = buffer ""
           let &tmp = buffer ""
-          let xlocs = (ls.vars |> var as SIMVAR() hasindex i0 => '<%cref(name, &sub)%> = xloc[<%i0%>];' ;separator="\n")
+          let xlocs = linearSystemSetIterVars(ls.vars, &sub)
           let jacobianName = match ls.vars case SIMVAR(matrixName=SOME(name))::_ then name else ""
           let prebody = (match ls.partOfJac
             case true then
@@ -2839,7 +2839,7 @@ template functionSetupLinearSystems(list<SimEqSystem> linearSystems, String mode
          let &varFreesRes = buffer ""
          let &auxFunction = buffer ""
          let &tmp = buffer ""
-         let xlocs = (ls.vars |> var as SIMVAR() hasindex i0 => '<%cref(var.name, &sub)%> = xloc[<%i0%>];' ;separator="\n")
+         let xlocs = linearSystemSetIterVars(ls.vars, &sub)
          let prebody = (ls.residual |> eq2 =>
                functionExtraResidualsPreBody(eq2, &tmp, modelNamePrefix)
           ;separator="\n")
@@ -2852,7 +2852,7 @@ template functionSetupLinearSystems(list<SimEqSystem> linearSystems, String mode
          let &varFreesRes2 = buffer ""
          let &auxFunction2 = buffer ""
          let &tmp2 = buffer ""
-         let xlocs2 = (at.vars |> var as SIMVAR() hasindex i0 => '<%cref(var.name, &sub)%> = xloc[<%i0%>];' ;separator="\n")
+         let xlocs2 = linearSystemSetIterVars(at.vars, &sub)
          let prebody2 = (at.residual |> eq2 =>
                functionExtraResidualsPreBody(eq2, &tmp2, modelNamePrefix)
           ;separator="\n")
@@ -3402,6 +3402,20 @@ template functionNonLinearResiduals(list<SimEqSystem> nonlinearSystems, String m
     )
     ;separator="\n\n")
 end functionNonLinearResiduals;
+
+template linearSystemSetIterVars(list<SimVar> vars, Text &sub)
+  "the iteration variables from xloc, runs of consecutive real variables at once"
+::=
+  (simVarIndexRuns(vars) |> (pos, idx, len, kind) =>
+    if intEq(kind, 1) then if intGt(len, 1) then
+      (match listGet(vars, intAdd(pos, 1)) case var as SIMVAR() then
+        'memcpy(&data->localData[0]->realVars[<%idx%>], xloc + <%pos%>, <%len%> * sizeof(double)); /* <%crefCComment(var, crefStrNoUnderscore(var.name))%> ... */')
+    else
+      (match listGet(vars, intAdd(pos, 1)) case var as SIMVAR() then '<%cref(var.name, &sub)%> = xloc[<%pos%>];')
+    else
+      (match listGet(vars, intAdd(pos, 1)) case var as SIMVAR() then '<%cref(var.name, &sub)%> = xloc[<%pos%>];')
+  ;separator="\n")
+end linearSystemSetIterVars;
 
 template systemResiduals(list<SimEqSystem> eqs, Text resizable,
                          Text &varDecls, Text &varFrees, Text &innerEqns)
