@@ -2319,7 +2319,7 @@ end nVariablesReal;
 public function simVarIndexRuns
   "The variables as runs (position in the list, first index, length, kind): kind 1 for
    real variables with consecutive indices in realVars, else a run of one variable
-   with kind 0 for Jacobian variables, 2 for parameters and 3 for any other."
+   with kind 0 for variables without index, 2 for parameters and 3 for any other."
   input list<SimCodeVar.SimVar> vars;
   output list<tuple<Integer, Integer, Integer, Integer>> runs = {};
 protected
@@ -2338,6 +2338,9 @@ algorithm
       else 3;
     end match;
     index := var.index;
+    if index < 0 then
+      kind := 0;
+    end if;
     if kind == 1 and len > 0 and index == start + len then
       len := len + 1;
     else
