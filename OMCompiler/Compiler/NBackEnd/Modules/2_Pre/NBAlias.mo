@@ -1550,7 +1550,6 @@ protected
     (simple, num_cref) := match exp
       local
         Integer num_cref_tmp;
-        Operator.Op op;
 
       case Expression.INTEGER()   then (true, 0);
       case Expression.REAL()      then (true, 0);
@@ -1573,13 +1572,13 @@ protected
         simple := if simple then checkOp(exp.operator, num_cref) else false;
       then (simple, num_cref);
 
-      case Expression.BINARY(operator = Operator.OPERATOR(op = op)) algorithm
+      case Expression.BINARY() algorithm
         (simple, num_cref) := isSimpleExp(exp.exp2);
         // 1/x is not considered simple
-        if op == NFOperator.Op.DIV and num_cref <> 0 then simple := false; return; end if;
+        if Operator.getMathClassification(exp.operator) == NFOperator.MathClassification.DIVISION and num_cref <> 0 then simple := false; return; end if;
         (simple, num_cref_tmp) := isSimpleExp(exp.exp1, simple);
         num_cref := num_cref + num_cref_tmp;
-        simple := if simple then checkOp(exp.operator, num_cref) else false;
+        simple := if simple then checkOp(exp.operator, num_cref) and knownArrayFactors(exp.operator, {exp.exp1, exp.exp2}) else false;
       then (simple, num_cref);
 
       case Expression.LBINARY() algorithm
@@ -1589,25 +1588,41 @@ protected
         simple := if simple then checkOp(exp.operator, num_cref) else false;
       then (simple, num_cref);
 
-      case Expression.MULTARY(operator = Operator.OPERATOR(op = op)) algorithm
+      case Expression.MULTARY() algorithm
         for arg in exp.inv_arguments loop
           (simple, num_cref_tmp) := isSimpleExp(arg, simple);
           if not simple then return; end if;
           num_cref := num_cref + num_cref_tmp;
         end for;
         // 1/x is not considered simple
-        if op == NFOperator.Op.MUL and num_cref <> 0 then simple := false; return; end if;
+        if Operator.getMathClassification(exp.operator) == NFOperator.MathClassification.MULTIPLICATION and num_cref <> 0 then simple := false; return; end if;
         for arg in exp.arguments loop
           (simple, num_cref_tmp) := isSimpleExp(arg, simple);
           if not simple then return; end if;
           num_cref := num_cref + num_cref_tmp;
         end for;
-        simple := if simple then checkOp(exp.operator, num_cref) else false;
+        simple := if simple then checkOp(exp.operator, num_cref) and knownArrayFactors(exp.operator, exp.arguments) else false;
       then (simple, num_cref);
 
       else (false, num_cref);
     end match;
   end isSimpleExp;
+
+  function knownArrayFactors
+    "array-scalar products are only simple if they are known, e.g. not z = c * w or z = 2 * u"
+    input Operator op;
+    input list<Expression> factors;
+    output Boolean b = true;
+  algorithm
+    if Operator.getSizeClassification(op) == NFOperator.SizeClassification.SCALAR_ARRAY or Operator.getSizeClassification(op) == NFOperator.SizeClassification.ARRAY_SCALAR then
+      for f in factors loop
+        if Expression.contains(f, isNonParameterCref) then
+          b := false;
+          return;
+        end if;
+      end for;
+    end if;
+  end knownArrayFactors;
 
   function checkOp
     "BB"
