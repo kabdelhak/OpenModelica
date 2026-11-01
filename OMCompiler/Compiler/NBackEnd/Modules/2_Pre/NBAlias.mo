@@ -1281,8 +1281,8 @@ protected
         Pointer.update(ok_ptr, ok);
       then Expression.fromCref(name);
 
-      // literal arrays subscripted by the iterators, e.g. {1.0, 0.0, -1.0}[i]
-      case Expression.SUBSCRIPTED_EXP(split = false) guard(Expression.isLiteral(exp.exp)) algorithm
+      // constant arrays subscripted by the iterators, e.g. {1.0, 0.0, -1.0}[i]
+      case Expression.SUBSCRIPTED_EXP(split = false) guard(not Expression.contains(exp.exp, Expression.isCref)) algorithm
         ty   := Expression.typeOf(exp.exp);
         dims := Type.arrayDims(ty);
         subs := exp.subscripts;
@@ -1621,6 +1621,8 @@ protected
       case Operator.OPERATOR(op = NFOperator.Op.UMINUS)     then true;
       case Operator.OPERATOR(op = NFOperator.Op.NOT)        then true;
       case Operator.OPERATOR(op = NFOperator.Op.MUL)        then cref_num < 2;
+      case Operator.OPERATOR(op = NFOperator.Op.MUL_SCALAR_ARRAY) then cref_num < 2;
+      case Operator.OPERATOR(op = NFOperator.Op.MUL_ARRAY_SCALAR) then cref_num < 2;
       case Operator.OPERATOR(op = NFOperator.Op.DIV)        then cref_num < 2;
                                                             else cref_num == 0;
     end match;

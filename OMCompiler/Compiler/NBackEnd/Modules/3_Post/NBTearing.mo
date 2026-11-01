@@ -2535,12 +2535,12 @@ protected
 
   function isParameterDivision
     input Solvability sol;
-    input Boolean iterated "constant coefficients of for-equations can differ per element";
+    input Boolean iterated "coefficients of for-equations can be zero for single elements, e.g. {0.0, 1.0}[i]";
     output Boolean b;
   algorithm
     b := match sol
       case Solvability.EXPLICIT_LINEAR(pars = SOME(_), vars = NONE()) then true;
-      case Solvability.EXPLICIT_LINEAR(vars = NONE()) then iterated;
+      case Solvability.EXPLICIT_LINEAR() then iterated;
       else false;
     end match;
   end isParameterDivision;
@@ -2588,7 +2588,7 @@ protected
     Integer start, step, stop;
   algorithm
     if listEmpty(names) then
-      elem := SimplifyExp.simplify(coeff);
+      elem := SimplifyExp.simplify(Expression.map(coeff, evaluateSubscripts));
       b := Expression.isLiteral(elem) and Expression.isZero(elem);
       return;
     end if;
@@ -2602,6 +2602,16 @@ protected
       if b then return; end if;
     end for;
   end isZeroElement;
+
+  function evaluateSubscripts
+    input output Expression exp;
+  algorithm
+    exp := match exp
+      case Expression.SUBSCRIPTED_EXP() guard(List.all(exp.subscripts, Subscript.isLiteral) and not Expression.contains(exp.exp, Expression.isCref))
+      then Expression.applySubscripts(exp.subscripts, SimplifyExp.simplify(exp.exp));
+      else exp;
+    end match;
+  end evaluateSubscripts;
 
   function replaceIterator
     input output Expression exp;
