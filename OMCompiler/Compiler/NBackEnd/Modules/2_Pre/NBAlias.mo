@@ -1281,6 +1281,28 @@ protected
         Pointer.update(ok_ptr, ok);
       then Expression.fromCref(name);
 
+      // literal arrays subscripted by the iterators, e.g. {1.0, 0.0, -1.0}[i]
+      case Expression.SUBSCRIPTED_EXP(split = false) guard(Expression.isLiteral(exp.exp)) algorithm
+        ty   := Expression.typeOf(exp.exp);
+        dims := Type.arrayDims(ty);
+        subs := exp.subscripts;
+        ok   := listLength(subs) == listLength(dims)
+          and List.all(subs, Subscript.isIndex)
+          and List.all(list(isFullIteratorSubscript(sub, dim, iter_sizes) threaded for sub in subs, dim in dims), Util.id);
+        if ok then
+          ok := match Pointer.access(subs_ptr)
+            local
+              list<Subscript> subs2;
+            case SOME(subs2) then List.isEqualOnTrue(subs, subs2, Subscript.isEqual);
+            else algorithm
+              Pointer.update(subs_ptr, SOME(subs));
+              Pointer.update(ty_ptr, SOME(ty));
+            then listLength(List.uniqueOnTrue(subs, Subscript.isEqual)) == listLength(subs);
+          end match;
+        end if;
+        Pointer.update(ok_ptr, ok);
+      then exp.exp;
+
       else exp;
     end match;
   end fullVariableCref;
@@ -1535,6 +1557,7 @@ protected
       case Expression.BOOLEAN()   then (true, 0);
       case Expression.STRING()    then (true, 0);
       case Expression.CREF()      then (true, 1);
+      case Expression.ARRAY() guard(Expression.isLiteral(exp)) then (true, 0);
       // TODO what about parameters in the denominator, they could be zero, (alias strictness?)
       //case Expression.CREF()      then (true, if ComponentRef.variability(exp.cref) > Variability.NON_STRUCTURAL_PARAMETER then 1 else 0);
 
