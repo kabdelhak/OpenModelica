@@ -2506,11 +2506,14 @@ protected
     Equation eqn = Pointer.access(eqn_ptr);
     Solve.Status status;
     Boolean single;
+    Option<Iterator> iter = NONE();
   algorithm
     (eqn, single) := match eqn
       local
         Equation body;
-      case Equation.FOR_EQUATION(body = {body}) then (body, true);
+      case Equation.FOR_EQUATION(body = {body}) algorithm
+        iter := SOME(eqn.iter);
+      then (body, true);
       case Equation.FOR_EQUATION() then (eqn, false);
       else (eqn, true);
     end match;
@@ -2520,8 +2523,8 @@ protected
         (_, status, _) := Solve.solveBody(eqn, listHead(crefs), funcMap);
         b := status == NBSolve.Status.EXPLICIT;
         // like the old backend: do not divide by parameters that are zero
-        if b and isParameterDivision(UnorderedMap.getSafe(listHead(crefs), solvabilities, sourceInfo())) then
-          b := not isZeroCoefficient(eqn, listHead(crefs), funcMap);
+        if b and isParameterDivision(UnorderedMap.getSafe(listHead(crefs), solvabilities, sourceInfo()), isSome(iter)) then
+          b := not isZeroCoefficient(eqn, listHead(crefs), funcMap, iter);
         end if;
       else
         b := false;
@@ -2532,10 +2535,12 @@ protected
 
   function isParameterDivision
     input Solvability sol;
+    input Boolean iterated "constant coefficients of for-equations can differ per element";
     output Boolean b;
   algorithm
     b := match sol
       case Solvability.EXPLICIT_LINEAR(pars = SOME(_), vars = NONE()) then true;
+      case Solvability.EXPLICIT_LINEAR(vars = NONE()) then iterated;
       else false;
     end match;
   end isParameterDivision;
@@ -2545,9 +2550,12 @@ protected
     input Equation eqn;
     input ComponentRef cref;
     input UnorderedMap<Path, Function> funcMap;
+    input Option<Iterator> iter "of a for-equation, the coefficient has to be nonzero for each element";
     output Boolean b;
   protected
     Expression coeff;
+    list<ComponentRef> names;
+    list<Expression> ranges;
   algorithm
     try
       (coeff, _) := Differentiate.differentiateExpression(Equation.getResidualExp(eqn), Differentiate.DifferentiationArguments.simpleCref(cref, funcMap));
@@ -2555,11 +2563,56 @@ protected
         coeff := SimplifyExp.simplify(Expression.map(coeff, parameterBinding));
         if Expression.isLiteral(coeff) then break; end if;
       end for;
-      b := Expression.isLiteral(coeff) and Expression.isZero(coeff);
+      if Expression.isLiteral(coeff) or isNone(iter) then
+        b := Expression.isLiteral(coeff) and Expression.isZero(coeff);
+      else
+        (names, ranges, _) := Iterator.getFrames(Util.getOption(iter));
+        b := isZeroElement(coeff, names, ranges);
+      end if;
     else
       b := false;
     end try;
   end isZeroCoefficient;
+
+  function isZeroElement
+    "true if the coefficient is zero for one of the iterator values (only for small literal ranges)"
+    input Expression coeff;
+    input list<ComponentRef> names;
+    input list<Expression> ranges;
+    output Boolean b = false;
+  protected
+    ComponentRef name;
+    Expression range, elem;
+    list<ComponentRef> rest_names;
+    list<Expression> rest_ranges;
+    Integer start, step, stop;
+  algorithm
+    if listEmpty(names) then
+      elem := SimplifyExp.simplify(coeff);
+      b := Expression.isLiteral(elem) and Expression.isZero(elem);
+      return;
+    end if;
+    name :: rest_names := names;
+    range :: rest_ranges := ranges;
+    if not Expression.isLiteral(range) then return; end if;
+    (start, step, stop) := Expression.getIntegerRange(range, false);
+    if step == 0 or div(stop - start, step) > 1000 then return; end if;
+    for i in start:step:stop loop
+      b := isZeroElement(Expression.map(coeff, function replaceIterator(name = name, value = i)), rest_names, rest_ranges);
+      if b then return; end if;
+    end for;
+  end isZeroElement;
+
+  function replaceIterator
+    input output Expression exp;
+    input ComponentRef name;
+    input Integer value;
+  algorithm
+    exp := match exp
+      case Expression.CREF() guard(ComponentRef.isEqual(exp.cref, name)) then Expression.INTEGER(value);
+      else exp;
+    end match;
+  end replaceIterator;
 
   function parameterBinding
     input output Expression exp;
