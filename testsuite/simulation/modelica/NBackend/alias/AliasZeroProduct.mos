@@ -2,8 +2,8 @@
 // keywords: NewBackend
 // status: correct
 //
-// I = m * L becomes I = m * 0.0 after L is replaced. It does not relate I and m,
-// m cannot be solved from it.
+// I = m * L becomes I = m * 0.0 after L is replaced. It has to be simplified to
+// I = 0.0 before the next alias run, m cannot be solved from it.
 
 loadString("
 model AliasZeroProduct

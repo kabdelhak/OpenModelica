@@ -439,7 +439,6 @@ public
       (function Inline.main(inline_types = inline_types, init = false), "Early Inline"),
       (function simplify(init = false), "Simplify 1"),
       (function Alias.main(kind = kind),  "Alias"),
-      (function simplify(init = false), "Simplify 2"), // TODO simplify in Alias only
       (removeStream,       "Remove Stream"),
       (detectAlgorithmLocals, "Algorithm Locals"),
       (DetectStates.main,  "Detect States"),
