@@ -1566,7 +1566,8 @@ protected
         if Operator.getMathClassification(exp.operator) == NFOperator.MathClassification.DIVISION and num_cref <> 0 then simple := false; return; end if;
         (simple, num_cref_tmp) := isSimpleExp(exp.exp1, simple);
         num_cref := num_cref + num_cref_tmp;
-        simple := if simple then checkOp(exp.operator, num_cref) and knownArrayFactors(exp.operator, {exp.exp1, exp.exp2}) else false;
+        simple := if simple then checkOp(exp.operator, num_cref) and knownArrayFactors(exp.operator, {exp.exp1, exp.exp2})
+          and not zeroProduct(exp.operator, {exp.exp1, exp.exp2}) else false;
       then (simple, num_cref);
 
       case Expression.LBINARY() algorithm
@@ -1589,12 +1590,33 @@ protected
           if not simple then return; end if;
           num_cref := num_cref + num_cref_tmp;
         end for;
-        simple := if simple then checkOp(exp.operator, num_cref) and knownArrayFactors(exp.operator, exp.arguments) else false;
+        simple := if simple then checkOp(exp.operator, num_cref) and knownArrayFactors(exp.operator, exp.arguments)
+          and not zeroProduct(exp.operator, exp.arguments) else false;
       then (simple, num_cref);
 
       else (false, num_cref);
     end match;
   end isSimpleExp;
+
+  function zeroProduct
+    "a product with a zero factor does not relate its variables, e.g. y = x * 0.0"
+    input Operator op;
+    input list<Expression> factors;
+    output Boolean b = Operator.getMathClassification(op) == NFOperator.MathClassification.MULTIPLICATION
+      and List.any(factors, hasZeroElement);
+  end zeroProduct;
+
+  function hasZeroElement
+    input Expression exp;
+    output Boolean b;
+  algorithm
+    b := match exp
+      case Expression.ARRAY() then Array.any(exp.elements, hasZeroElement);
+      case Expression.BINARY() guard(Operator.getMathClassification(exp.operator) == NFOperator.MathClassification.POWER)
+        then hasZeroElement(exp.exp1) and Expression.isPositive(exp.exp2);
+      else Expression.isZero(exp);
+    end match;
+  end hasZeroElement;
 
   function knownArrayFactors
     "array-scalar products are only simple if they are known, e.g. not z = c * w or z = 2 * u"
