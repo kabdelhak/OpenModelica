@@ -1626,7 +1626,8 @@ protected
     input Operator op;
     input list<Expression> factors;
     output Boolean b = Operator.getMathClassification(op) == NFOperator.MathClassification.MULTIPLICATION
-      and List.any(factors, hasZeroElement);
+      and List.any(factors, hasZeroElement)
+      and List.any(factors, function Expression.contains(func = isNonParameterCref));
   end zeroProduct;
 
   function hasZeroElement
