@@ -1410,8 +1410,10 @@ protected
   end solvingComponents;
 
   function hasLiteralSubscripts
+    "true for a single element, an array cref like x stands for all components solving any of its elements"
     input ComponentRef cref;
-    output Boolean b = List.all(ComponentRef.subscriptsAllFlat(cref), Subscript.isLiteral);
+    output Boolean b = List.all(ComponentRef.subscriptsAllFlat(cref), Subscript.isLiteral)
+      and not Type.isArray(ComponentRef.getSubscriptedType(cref, true));
   end hasLiteralSubscripts;
 
   function collectPartitioningCrefs
