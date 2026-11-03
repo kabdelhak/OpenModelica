@@ -1971,7 +1971,7 @@ function isJacobianResultVar
     protected
       Expression new_exp;
     algorithm
-      // impure calls are evaluated at initialization, MLS 3.7 section 12.3
+      // explicitly impure calls are not evaluated during translation
       if Expression.contains(exp, isExplicitlyImpureCall) then
         b := false;
         return;
