@@ -57,6 +57,32 @@ fn csv_booleans_are_numbers() {
 }
 
 #[test]
+fn diff_skips_missing_variables() {
+    let d = dir("diff_missing");
+    let actual = path(&d, "actual.csv");
+    let reference = path(&d, "reference.csv");
+    std::fs::write(&actual, "time,x\n0,1\n0.5,2\n1,3\n").unwrap();
+    std::fs::write(&reference, "time,x,CPUtime\n0,1,0\n0.5,2,1\n1,3,2\n").unwrap();
+    let mut msgs = Collect::default();
+    let (ok, vars) = scripting::diff(
+        &mut msgs,
+        false,
+        &actual,
+        &reference,
+        "",
+        0.003,
+        0.003,
+        0.001,
+        &[],
+        false,
+    );
+    assert!(ok);
+    assert!(vars.is_empty());
+    assert!(msgs.0.iter().any(|(_, m)| m.contains("CPUtime")));
+    std::fs::remove_dir_all(d).unwrap();
+}
+
+#[test]
 fn filter_without_descriptions_reads_back() {
     let d = dir("filter");
     let input = path(&d, "in.mat");

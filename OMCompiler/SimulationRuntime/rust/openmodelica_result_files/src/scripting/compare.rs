@@ -580,8 +580,8 @@ impl<'a> Diff<'a> {
         Some(d)
     }
 
-    /// Compare each variable for `f`; one that cannot be read or compared is
-    /// reported here and fails.
+    /// Compare each variable for `f`; one that cannot be compared is reported
+    /// here and fails. One missing in a file is only reported, as in the C omc.
     fn run(mut self, msgs: &mut dyn Messages, mut f: impl FnMut(&mut dyn Messages, &str, Compared)) {
         let plt = matches!(self.actual.reader, ResultReader::Plt(_));
         let plt_ref = matches!(self.reference.reader, ResultReader::Plt(_));
@@ -606,15 +606,6 @@ impl<'a> Diff<'a> {
                     };
                     could_not_read(msgs, plt, &var.replace('"', ""), file);
                     msgs.warning("Get data of variable %s from file %s failed!\n", &[var, file]);
-                    f(
-                        msgs,
-                        var,
-                        Compared {
-                            time: Vec::new(),
-                            data: Vec::new(),
-                            cmp: Err(String::new()),
-                        },
-                    );
                 }
             },
         );
@@ -622,7 +613,7 @@ impl<'a> Diff<'a> {
 }
 
 /// `diffSimulationResults`: whether every variable stays in its tube, and the
-/// variables that do not or are missing. With a `prefix`, each of those (all
+/// variables that do not. With a `prefix`, each of those (all
 /// of them with `keep_equal_results`) gets a `<prefix>.<var>.csv` file.
 #[allow(clippy::too_many_arguments)]
 pub fn diff(
