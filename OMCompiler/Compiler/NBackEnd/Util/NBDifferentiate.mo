@@ -43,6 +43,7 @@ public
   // OF imports
   import Absyn.Path;
   import AbsynUtil;
+  import DAE;
 
   // NF imports
   import Algorithm = NFAlgorithm;
@@ -56,6 +57,7 @@ public
   import ComponentRef = NFComponentRef;
   import Dimension = NFDimension;
   import Expression = NFExpression;
+  import Inline = NFInline;
   import InstContext = NFInstContext;
   import NFInstNode.{InstNode, CachedData};
   import NFFunction.{Function, Slot};
@@ -1777,6 +1779,11 @@ public
           else
             arguments := listAppend(call.arguments, arguments);
             ret := Expression.CALL(Call.makeTypedCall(der_func, arguments, call.var, call.purity));
+            // inline derivatives like resolve1_der for index reduction, so the noDerivative
+            // inputs of the functions they call stay visible
+            if diffArguments.diffType == DifferentiationType.TIME then
+              ret := inlineDerivativeCall(ret, der_func);
+            end if;
           end if;
         else
           // The function is not in the function tree and not builtin -> error
@@ -1797,6 +1804,17 @@ public
       print("Differentiate-ExpCall-result: " + Expression.toString(exp) + "\n");
     end if;
   end differentiateCall;
+
+  function inlineDerivativeCall
+    "inlines a call to a derivative function annotated with Inline=true"
+    input output Expression exp;
+    input Function der_func;
+  algorithm
+    exp := match Function.inlineBuiltin(der_func)
+      case DAE.InlineType.NORM_INLINE() then Inline.inlineCall(exp);
+      else exp;
+    end match;
+  end inlineDerivativeCall;
 
   function differentiateReduction
     "This function differentiates reduction expressions with respect to a given variable.

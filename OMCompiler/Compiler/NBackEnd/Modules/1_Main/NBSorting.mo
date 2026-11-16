@@ -581,6 +581,22 @@ public
           end for;
 
           // phase 3 tarjan only reads phase2_adj.m, so mT is left as it is
+          // TMPDEBUG
+          for e in 1:arrayLength(matching.eqn_to_var) loop
+            if matching.eqn_to_var[e] > 0 and matching.var_to_eqn[matching.eqn_to_var[e]] <> e then
+              print("TMPDEBUG inconsistent eqn " + intString(e) + " -> var " + intString(matching.eqn_to_var[e]) + " -> eqn " + intString(matching.var_to_eqn[matching.eqn_to_var[e]]) + "\n");
+            end if;
+          end for;
+          for v in 1:arrayLength(phase2_matching.var_to_eqn) loop
+            if phase2_matching.var_to_eqn[v] > 0 and phase2_matching.var_to_eqn[v] <= arrayLength(super_nodes) then
+              _ := match super_nodes[phase2_matching.var_to_eqn[v]]
+                case ELEMENT() algorithm
+                  print("TMPDEBUG var " + intString(v) + " still points to element eqn " + intString(phase2_matching.var_to_eqn[v]) + " " + SuperNode.toString(super_nodes[phase2_matching.var_to_eqn[v]]) + " eqn_to_var=" + intString(matching.eqn_to_var[phase2_matching.var_to_eqn[v]]) + "\n");
+                then ();
+                else ();
+              end match;
+            end if;
+          end for;
 
         then phase2_adj;
 

@@ -50,11 +50,13 @@ protected
   import SimplifyExp = NFSimplifyExp;
   import Call = NFCall;
   import NFFunction.Function;
+  import Absyn.Path;
   import Subscript = NFSubscript;
   import Type = NFType;
 
   // NB imports
   import Adjacency = NBAdjacency;
+  import BackendDAE = NBackendDAE;
   import NBFunctionAlias.Call_Aux;
   import Differentiate = NBDifferentiate;
   import NBEquation.{Equation, EqData, EquationAttributes, EquationKind, EquationPointer, EquationPointers, IfEquationBody, SlicingStatus, Iterator};
@@ -183,7 +185,7 @@ public
       // state candidates and constraint equations are lists of slices
       // adjacency matrix and arrays are only full based
       // slice them before matching
-      (constraint_ptrs, candidate_ptrs, constraint_eqns) := getConstraintsAndCandidates(equations, marked_eqns, mapping);
+      (constraint_ptrs, candidate_ptrs, constraint_eqns) := getConstraintsAndCandidates(equations, marked_eqns, mapping, funcMap);
 
       for eq in constraint_eqns loop
         UnorderedMap.add(Equation.getEqnName(Slice.getT(eq)), UnorderedSet.fromList(eq.indices, Util.id, intEq), slice_map);
@@ -279,10 +281,61 @@ public
           end if;
         end for;
 
+        // the dummy states are chosen from linear occurrences. if they are not enough, also allow
+        // nonlinear ones, e.g. joint angles that become dummies because of a forced state
+        if not Adjacency.Matrix.isEmpty(set_adj) and Array.any(set_matching.eqn_to_var, function intLt(i2 = 0)) then
+          vo := UnorderedMap.merge(vo, UnorderedMap.copy(vn), sourceInfo());
+          set_adj := Adjacency.Matrix.upgrade(set_adj, full_local, vo, eo, constraint_ptrs, NBAdjacency.MatrixStrictness.MATCHING);
+          set_matching := Matching.regular(set_matching, set_adj, false, true, false);
+        end if;
+
         // parse the result of the matching
         (dummy_states, states, matched_eqns, unmatched_eqns) := Matching.getMatches(set_matching, Adjacency.Matrix.getMappingOpt(set_adj), candidate_ptrs, constraint_ptrs);
       end if;
+      // TMPDEBUG
+      print("TMPDEBUG dummy matching: constraints " + intString(sum(Slice.size(eq, function Equation.size(resize = true)) for eq in constraint_eqns))
+        + " dummies " + intString(sum(Slice.size(v, function BVariable.size(resize = true)) for v in dummy_states))
+        + " states " + intString(sum(Slice.size(v, function BVariable.size(resize = true)) for v in states))
+        + " unmatched before filter " + intString(sum(Slice.size(eq, function Equation.size(resize = true)) for eq in unmatched_eqns)) + "\n");
+      print("TMPDEBUG candidates " + intString(VariablePointers.scalarSize(candidate_ptrs)) + "\n");
+      if not listEmpty(unmatched_eqns) then
+        () := match set_adj
+          local
+            array<list<Integer>> dbg_sets;
+            UnorderedSet<Integer> dbg_eqns, dbg_vars;
+            array<Integer> dbg_data;
+          case Adjacency.FINAL() algorithm
+            dbg_sets := getMSSS(set_adj.m, set_adj.mT, set_matching, arrayCreate(EquationPointers.size(constraint_ptrs), false), set_adj.mapping);
+            dbg_eqns := UnorderedSet.new(Util.id, intEq);
+            dbg_vars := UnorderedSet.new(Util.id, intEq);
+            dbg_data := Adjacency.IntMatrix.entries(set_adj.m);
+            for lst in dbg_sets loop for e in lst loop
+              UnorderedSet.add(set_adj.mapping.eqn_StA[e], dbg_eqns);
+              for k in set_adj.m.start[e]:set_adj.m.start[e] + set_adj.m.len[e] - 1 loop
+                UnorderedSet.add(set_adj.mapping.var_StA[intAbs(dbg_data[k])], dbg_vars);
+              end for;
+            end for; end for;
+            print("TMPDEBUG deficient set: " + intString(sum(listLength(l) for l in dbg_sets)) + " scalar eqns\n");
+            for e in UnorderedSet.toList(dbg_eqns) loop
+              print("TMPDEBUG   E " + Equation.pointerToString(EquationPointers.getEqnAt(constraint_ptrs, e)) + "\n");
+            end for;
+            for v in UnorderedSet.toList(dbg_vars) loop
+              print("TMPDEBUG   V " + BVariable.pointerToString(VariablePointers.getVarAt(candidate_ptrs, v)) + "\n");
+            end for;
+          then ();
+          else ();
+        end match;
+      end if;
+      for v in VariablePointers.toList(candidate_ptrs) loop
+        if not (List.any(dummy_states, function sliceIsVar(v = v)) or List.any(states, function sliceIsVar(v = v))) then
+          print("TMPDEBUG   neither " + BVariable.pointerToString(v) + "\n");
+        end if;
+      end for;
+      for eq in unmatched_eqns loop
+        print("TMPDEBUG   unmatched " + Slice.toString(eq, function Equation.pointerToString(str = ""), 10) + "\n");
+      end for;
       unmatched_eqns := resolveSlicedUnmatched(unmatched_eqns, slice_map);
+      print("TMPDEBUG unmatched after filter " + intString(listLength(unmatched_eqns)) + "\n");
 
       // sliced state/dummy candidates have to be resolved before differentiation, so the
       // constraint equations reference the whole alias rather than a slice of the
@@ -319,6 +372,9 @@ public
       // differentiate all eqns
       for constraint in EquationPointers.toList(constraint_ptrs) loop
         diffed_eqn := Differentiate.differentiateEquationPointer(constraint, diffArguments_ptr);
+        // inlined derivative functions (e.g. resolve1_der) leave crefs with frontend nodes
+        Pointer.update(diffed_eqn, Equation.map(Pointer.access(diffed_eqn),
+          function BackendDAE.lowerComponentReferenceExp(variables = variables, complete = false)));
         diffed_eqn := removeSlicedDerivatives(diffed_eqn, UnorderedMap.getSafe(Equation.getEqnName(constraint), slice_map, sourceInfo()), dummy_slice_set, VarData.getUniqueIndex(varData));
         new_eqns := diffed_eqn :: new_eqns;
         if Flags.isSet(Flags.DUMMY_SELECT) then
@@ -394,6 +450,14 @@ public
       // new equations
       eqData := EqData.addTypedList(eqData, new_eqns, EqData.EqType.CONTINUOUS);
 
+      // TMPDEBUG
+      print("TMPDEBUG IR before: vars " + intString(VariablePointers.scalarSize(variables)) + " eqns " + intString(EquationPointers.scalarSize(equations, true)) + "\n");
+      print("TMPDEBUG IR new_eqns " + intString(sum(Equation.size(e, true) for e in new_eqns)) + " new_vars " + intString(sum(BVariable.size(v, true) for v in diffArguments.new_vars))
+        + " dummy_states " + intString(sum(BVariable.size(v, true) for v in sliced_dummy_states)) + " states " + intString(sum(BVariable.size(v, true) for v in sliced_states))
+        + " der_aliases " + intString(listLength(der_aliases)) + " dummy_slice " + intString(UnorderedSet.size(dummy_slice_set)) + "\n");
+      print("TMPDEBUG IR dummy states already unknown: " + intString(sum(BVariable.size(v, true) for v guard(VariablePointers.contains(v, variables)) in sliced_dummy_states))
+        + " states not unknown: " + intString(sum(BVariable.size(v, true) for v guard(not VariablePointers.contains(v, variables)) in sliced_states))
+        + " new_vars already unknown: " + intString(sum(BVariable.size(v, true) for v guard(VariablePointers.contains(v, variables)) in diffArguments.new_vars)) + "\n");
       // add all new differentiated variables
       variables := VariablePointers.addList(diffArguments.new_vars, variables);
       // add all dummy states
@@ -407,6 +471,7 @@ public
       dummy_slice_vars := list(BVariable.getVarPointer(cref, sourceInfo()) for cref in UnorderedSet.toList(dummy_slice_set));
       varData := VarData.addTypedList(varData, dummy_slice_vars, NBVariable.VarData.VarType.ALGEBRAIC);
       variables := VariablePointers.addList(dummy_slice_vars, variables);
+      print("TMPDEBUG IR after: vars " + intString(VariablePointers.scalarSize(variables)) + " eqns " + intString(EquationPointers.scalarSize(equations, true)) + "\n");
     else
       changed := false;
     end if;
@@ -714,6 +779,7 @@ protected
     input EquationPointers equations;
     input list<Integer> marked_eqns;
     input Adjacency.Mapping mapping;
+    input UnorderedMap<Path, Function> funcMap;
     output EquationPointers constr = EquationPointers.empty();
     output VariablePointers states = VariablePointers.empty();
     output list<Slice<EquationPointer>> sliced_constr = {};
@@ -723,11 +789,15 @@ protected
     UnorderedSet<ComponentRef> state_candidates = UnorderedSet.new(ComponentRef.hash, ComponentRef.isEqual);
     Pointer<Equation> eqn_ptr;
     Pointer<Variable> var_ptr;
+    UnorderedSet<ComponentRef> no_der, other;
+    Integer start_idx;
   algorithm
     // collect all relevant constraint equations
     for eqn in marked_eqns loop
       UnorderedSet.add(mapping.eqn_StA[eqn], eqn_indices);
-      eqn_slices[mapping.eqn_StA[eqn]] := eqn :: eqn_slices[mapping.eqn_StA[eqn]];
+      // local element index, like the slices of Matching.getMatches
+      (start_idx, _) := mapping.eqn_AtS[mapping.eqn_StA[eqn]];
+      eqn_slices[mapping.eqn_StA[eqn]] := (eqn - start_idx) :: eqn_slices[mapping.eqn_StA[eqn]];
     end for;
 
     // get the constraint equation, add it to the array and add all slices of it to the slice list
@@ -736,8 +806,12 @@ protected
       eqn_ptr := EquationPointers.getEqnAt(equations, eqn);
       constr  := EquationPointers.add(eqn_ptr, constr);
       sliced_constr := Slice.SLICE(eqn_ptr, eqn_slices[eqn]) :: sliced_constr;
+      // variables only in noDerivative inputs have no derivative in the differentiated equation
+      (no_der, other) := Adjacency.noDerivativeCrefs(Pointer.access(eqn_ptr), funcMap);
       for candidate in Equation.collectCrefs(Pointer.access(eqn_ptr), getStateCandidate) loop
-        UnorderedSet.add(candidate, state_candidates);
+        if UnorderedSet.isEmpty(no_der) or not Adjacency.isNoDerivativeOnly(candidate, no_der, other) then
+          UnorderedSet.add(candidate, state_candidates);
+        end if;
       end for;
     end for;
 
@@ -1176,6 +1250,12 @@ protected
       else exp;
     end match;
   end substituteSlicedDummyExp;
+
+  function sliceIsVar "TMPDEBUG"
+    input Slice<VariablePointer> slice;
+    input Pointer<Variable> v;
+    output Boolean b = ComponentRef.isEqual(BVariable.getVarName(Slice.getT(slice)), BVariable.getVarName(v));
+  end sliceIsVar;
 
   function resolveSlicedUnmatched
     "removes all the unmatched slices that are irrelevant"

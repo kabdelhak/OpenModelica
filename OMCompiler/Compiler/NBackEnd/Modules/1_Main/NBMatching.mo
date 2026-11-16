@@ -151,6 +151,8 @@ public
     Option<Adjacency.Mapping> mapping;
     Adjacency.MatrixStrictness matrixStrictness;
     Boolean changed;
+    Adjacency.Matrix adj_ir;
+    Matching matching_ir;
   algorithm
     // 1. match the partition
     try
@@ -163,13 +165,28 @@ public
       fail();
     end try;
 
+    // TMPDEBUG
+    if not Partition.kindIsInitial(kind) then
+      print("TMPDEBUG singular restart " + intString(restarts) + ": vars " + intString(VariablePointers.scalarSize(vars)) + " eqns " + intString(EquationPointers.scalarSize(eqns, true))
+        + " unmatched eqns " + intString(sum(1 for e guard(e < 0) in matching.eqn_to_var)) + " unmatched vars " + intString(sum(1 for v guard(v < 0) in matching.var_to_eqn)) + "\n");
+    end if;
     // 2. Resolve singular partitions if necessary
     if Partition.kindIsInitial(kind) then
       // ####### BALANCE INITIALIZATION #######
       (adj, full, vars, eqns, varData, eqData, changed) := ResolveSingularities.balanceInitialization(adj, full, vars, eqns, varData, eqData, kind, funcMap, matching, mapping);
     else
       // ####### INDEX REDUCTION #######
-      (adj, full, vars, eqns, varData, eqData, changed) := ResolveSingularities.indexReduction(adj, full, vars, eqns, varData, eqData, kind, funcMap, matching, mapping);
+      // the derivative of a function call has no derivatives of its noDerivative inputs, so the
+      // singular subsets are found without these edges. the regular matching may still use them.
+      adj_ir := adj;
+      matching_ir := matching;
+      if Array.any(matching.eqn_to_var, function intLt(i2 = 0)) then
+        adj_ir := Adjacency.Matrix.removeNoDerivativeEdges(adj, vars, eqns, funcMap);
+        if not referenceEq(adj_ir, adj) then
+          matching_ir := regular(EMPTY_MATCHING, adj_ir, transposed, true);
+        end if;
+      end if;
+      (_, full, vars, eqns, varData, eqData, changed) := ResolveSingularities.indexReduction(adj_ir, full, vars, eqns, varData, eqData, kind, funcMap, matching_ir, mapping);
     end if;
 
     // 3. Recompute adjacency and restart matching if something changed in step 2.

@@ -232,6 +232,22 @@ public
     end for;
   end conditionsFromMap;
 
+  function noDerivativeInputs
+    "the input indices marked noDerivative"
+    input FunctionDerivative fnDer;
+    output list<Integer> indices = {};
+  protected
+    Integer idx;
+    Condition cond;
+  algorithm
+    for c in fnDer.conditions loop
+      (idx, _, cond) := c;
+      if cond == Condition.NO_DERIVATIVE then
+        indices := idx :: indices;
+      end if;
+    end for;
+  end noDerivativeInputs;
+
 protected
 
   function conditionToString

@@ -54,6 +54,7 @@ protected
   import Dimension = NFDimension;
   import Expression = NFExpression;
   import NFFunction.Function;
+  import FunctionDerivative = NFFunctionDerivative;
   import SimplifyExp = NFSimplifyExp;
   import Statement = NFStatement;
   import Subscript = NFSubscript;
@@ -865,6 +866,64 @@ public
       input Iterator iter = Iterator.EMPTY() "optional iterator the whole system might be surrounded by";
       output Matrix adj = upgrade(EMPTY(MatrixStrictness.FULL), full, vars_map, eqns_map, eqns, st, iter);
     end fullToFinal;
+
+    function removeNoDerivativeEdges
+      "removes the edges to variables that only occur in noDerivative inputs of function calls.
+      The derivative of the equation does not contain their derivatives, so index reduction
+      must not rely on them. Returns the input matrix if nothing is removed."
+      input Matrix adj;
+      input VariablePointers vars;
+      input EquationPointers eqns;
+      input UnorderedMap<Path, Function> funcMap;
+      output Matrix result = adj;
+    protected
+      IntMatrix m;
+      array<Integer> data;
+      UnorderedSet<ComponentRef> no_der, other;
+      Integer start, len, var_idx;
+      list<Integer> skip, checked, row_vars;
+      Boolean changed = false;
+    algorithm
+      () := match adj
+        case FINAL() algorithm
+          m := IntMatrix.new(IntMatrix.rows(adj.m));
+          data := IntMatrix.entries(adj.m);
+          for e in 1:arrayLength(adj.mapping.eqn_AtS) loop
+            (start, len) := adj.mapping.eqn_AtS[e];
+            if start > 0 then
+              skip := {};
+              (no_der, other) := noDerivativeCrefs(Pointer.access(EquationPointers.getEqnAt(eqns, e)), funcMap);
+              if not UnorderedSet.isEmpty(no_der) then
+                checked := {};
+                for row in start:start + len - 1 loop
+                  for k in adj.m.start[row]:adj.m.start[row] + adj.m.len[row] - 1 loop
+                    var_idx := adj.mapping.var_StA[intAbs(data[k])];
+                    if not List.isMemberOnTrue(var_idx, checked, intEq) then
+                      checked := var_idx :: checked;
+                      if isNoDerivativeOnly(BVariable.getVarName(VariablePointers.getVarAt(vars, var_idx)), no_der, other) then
+                        skip := var_idx :: skip;
+                      end if;
+                    end if;
+                  end for;
+                end for;
+              end if;
+              for row in start:start + len - 1 loop
+                row_vars := IntMatrix.toList(adj.m, row);
+                if not listEmpty(skip) then
+                  row_vars := list(v for v guard(not List.isMemberOnTrue(adj.mapping.var_StA[intAbs(v)], skip, intEq)) in row_vars);
+                  changed := true;
+                end if;
+                IntMatrix.setRow(m, row, row_vars);
+              end for;
+            end if;
+          end for;
+          if changed then
+            result := FINAL(m, IntMatrix.transpose(m, IntMatrix.rows(adj.mT)), adj.mapping, adj.modes, adj.st);
+          end if;
+        then ();
+        else ();
+      end match;
+    end removeNoDerivativeEdges;
 
     function fullToSparsity
       input Matrix full;
@@ -2591,6 +2650,117 @@ public
     end upgradeRow;
 
   end Matrix;
+
+  function noDerivativeCrefs
+    "the crefs of an equation occurring in noDerivative inputs of function calls and all others"
+    input Equation eqn;
+    input UnorderedMap<Path, Function> funcMap;
+    output UnorderedSet<ComponentRef> noDer = UnorderedSet.new(ComponentRef.hash, ComponentRef.isEqual);
+    output UnorderedSet<ComponentRef> other = UnorderedSet.new(ComponentRef.hash, ComponentRef.isEqual);
+  algorithm
+    Equation.map(eqn, function collectNoDerivativeCrefs(funcMap = funcMap, noDer = noDer, other = other),
+      SOME(function collectOtherCref(other = other)), Expression.fakeMap);
+  end noDerivativeCrefs;
+
+  function isNoDerivativeOnly
+    "true if the variable only occurs in noDerivative inputs"
+    input ComponentRef name;
+    input UnorderedSet<ComponentRef> noDer;
+    input UnorderedSet<ComponentRef> other;
+    output Boolean b;
+  protected
+    ComponentRef stripped = ComponentRef.stripSubscriptsAll(name);
+  algorithm
+    b := crefOverlaps(stripped, noDer) and not crefOverlaps(stripped, other);
+  end isNoDerivativeOnly;
+
+  function collectNoDerivativeCrefs
+    "sorts the crefs of an expression into the ones occurring in noDerivative
+    inputs of function calls and all others (subscripts stripped)"
+    input output Expression exp;
+    input UnorderedMap<Path, Function> funcMap;
+    input UnorderedSet<ComponentRef> noDer;
+    input UnorderedSet<ComponentRef> other;
+  protected
+    list<Integer> positions;
+    Integer i;
+  algorithm
+    () := match exp
+      local
+        Call call;
+        ComponentRef cref;
+
+      case Expression.CALL(call = call as Call.TYPED_CALL()) algorithm
+        positions := noDerivativePositions(call.fn, funcMap);
+        i := 1;
+        for arg in call.arguments loop
+          if List.isMemberOnTrue(i, positions, intEq) then
+            for c in UnorderedSet.toList(Expression.extractCrefs(arg)) loop
+              UnorderedSet.add(ComponentRef.stripSubscriptsAll(c), noDer);
+            end for;
+          else
+            collectNoDerivativeCrefs(arg, funcMap, noDer, other);
+          end if;
+          i := i + 1;
+        end for;
+      then ();
+
+      case Expression.CREF(cref = cref) algorithm
+        UnorderedSet.add(ComponentRef.stripSubscriptsAll(cref), other);
+      then ();
+
+      else algorithm
+        Expression.mapShallow(exp, function collectNoDerivativeCrefs(funcMap = funcMap, noDer = noDer, other = other));
+      then ();
+    end match;
+  end collectNoDerivativeCrefs;
+
+  function collectOtherCref
+    input output ComponentRef cref;
+    input UnorderedSet<ComponentRef> other;
+  algorithm
+    UnorderedSet.add(ComponentRef.stripSubscriptsAll(cref), other);
+  end collectOtherCref;
+
+  function noDerivativePositions
+    "input positions of a function marked noDerivative in its first derivative annotation"
+    input Function fn;
+    input UnorderedMap<Path, Function> funcMap;
+    output list<Integer> positions = {};
+  protected
+    Function full_fn = UnorderedMap.getOrDefault(Function.name(fn), funcMap, fn);
+  algorithm
+    if not listEmpty(full_fn.derivatives) then
+      positions := FunctionDerivative.noDerivativeInputs(listHead(full_fn.derivatives));
+    end if;
+  end noDerivativePositions;
+
+  function crefOverlaps
+    "true if the cref is a prefix of an element of the set or the other way around"
+    input ComponentRef cref;
+    input UnorderedSet<ComponentRef> set;
+    output Boolean b = false;
+  algorithm
+    for c in UnorderedSet.toList(set) loop
+      if crefHasPrefix(cref, c) or crefHasPrefix(c, cref) then
+        b := true;
+        return;
+      end if;
+    end for;
+  end crefOverlaps;
+
+  function crefHasPrefix
+    input ComponentRef cref;
+    input ComponentRef prefix;
+    output Boolean b;
+  algorithm
+    b := match cref
+      local
+        ComponentRef rest;
+      case ComponentRef.CREF(restCref = rest) then ComponentRef.isEqual(cref, prefix) or crefHasPrefix(rest, prefix);
+      else false;
+    end match;
+  end crefHasPrefix;
 
   uniontype Dependency
     "the dependency kind to show how a component reference occurs in an equation.

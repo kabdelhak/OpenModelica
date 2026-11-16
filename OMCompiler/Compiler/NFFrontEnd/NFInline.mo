@@ -171,6 +171,10 @@ algorithm
 
           exp := getOutputExp(stmt, InstNode.fromHandle(listHead(outputs)), call);
           exp := Expression.map(exp, function inlineCallExp(forceInline = forceInline));
+          // the body is typed with the unknown input dimensions, e.g. Real[:]
+          if Type.hasKnownSize(call.ty) and not Type.hasKnownSize(Expression.typeOf(exp)) then
+            exp := Expression.setType(call.ty, exp);
+          end if;
         else
           exp := callExp;
         end try;
