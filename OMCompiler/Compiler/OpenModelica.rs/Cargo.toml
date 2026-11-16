@@ -82,6 +82,11 @@ members = [
   "openmodelica_wasi",
   "openmodelica_wasi_libc",
   "openmodelica_zip",
+  "openmodelica_download",
+  "openmodelica_fmi_guide",
+  "openmodelica_package_manager",
+  "openmodelica_version",
+  "openmodelica_modelica_diff",
   "openmodelica_animation",
   "openmodelica_animation_wasm",
   "openmodelica_scripting_api_gen",
@@ -89,11 +94,11 @@ members = [
   "omshell_omc",
   "omshell_wgpu",
   "omshell_egui",
-  "omshell_dioxus",
   "openmodelica_fmi",
   "openmodelica_fmi_driver",
   "openmodelica_ext_native_marshal",
   "openmodelica_ext_native",
+  "openmodelica_fmi_state_machine",
   "../../SimulationRuntime/rust/daskr",
   "../../SimulationRuntime/rust/minpack",
   "../../SimulationRuntime/rust/openmodelica_mat_reader",
@@ -121,7 +126,7 @@ exclude = [
   "openmodelica_codegen_wasm_jit_runtime",
   "../../SimulationRuntime/rust/openmodelica_result_web_embed",
 ]
-# The OMShell GUI crates pull modern UI frameworks (eframe/dioxus) that require a
+# The OMShell GUI crate pulls a modern UI framework (eframe) that requires a
 # recent wasm-bindgen. Since wasmer 7.2 the compiler's wasm build uses the same
 # recent wasm-bindgen, so they share one resolution and are ordinary members.
 [workspace.dependencies]
@@ -144,10 +149,6 @@ libc = "0.2"
 libffi = "5"
 # Build-time C/C++ compilation for the FFI exception-catch shim (FFI.rs).
 cc = "1"
-# Links the system libcurl (the same library om_curl.c uses). On Windows the
-# bundled `static-curl` feature will be needed; add it when the Windows build
-# is set up (see Curl.rs).
-curl = "0.4"
 # Read-only XML DOM for the `*_prof.xml` profiling files written by the
 # simulation runtime (HpcOmBenchmarkExt.rs, replacing the expat parser of
 # runtime/HpcOmBenchmarkExt.cpp).
@@ -169,7 +170,7 @@ zmq = "0.10"
 # the native `sys`/cranelift backend. wasmer errors are wrapped with
 # anyhow::anyhow! via the `wt` helper (their Debug formatting), since the
 # crate's many engine error types do not share one anyhow-convertible type.
-wasm-encoder = "0.259"
+wasm-encoder = "0.263"
 # Engine backends for the wasm-jit target, selected by feature/target in
 # openmodelica_codegen_wasm_jit: wasmtime (native default, fastest cranelift),
 # or wasmer — whose `js` backend is the only one that can JIT inside a
@@ -193,6 +194,7 @@ openmodelica_codegen_wasm_jit = { path = "openmodelica_codegen_wasm_jit" }
 metamodelica = { path = "metamodelica" }
 openmodelica_ast = { path = "openmodelica_ast" }
 openmodelica_error = { path = "openmodelica_error" }
+openmodelica_fmi_guide = { path = "openmodelica_fmi_guide" }
 openmodelica_frontend = { path = "openmodelica_frontend" }
 openmodelica_frontend_base = { path = "openmodelica_frontend_base" }
 openmodelica_frontend_types = { path = "openmodelica_frontend_types" }
@@ -205,6 +207,10 @@ openmodelica_modelica_utilities = { path = "openmodelica_modelica_utilities" }
 openmodelica_wasi = { path = "openmodelica_wasi" }
 openmodelica_wasi_libc = { path = "openmodelica_wasi_libc" }
 openmodelica_zip = { path = "openmodelica_zip" }
+openmodelica_download = { path = "openmodelica_download", default-features = false }
+openmodelica_package_manager = { path = "openmodelica_package_manager", default-features = false }
+openmodelica_version = { path = "openmodelica_version" }
+openmodelica_modelica_diff = { path = "openmodelica_modelica_diff" }
 # LAPACK for every target, in place of the system `liblapack.so`: the same
 # `d*_` Fortran-ABI symbols `Lapack.rs` already binds, so one implementation
 # serves native, Windows (no MSVC-ABI LAPACK) and wasm (nothing to link) alike.

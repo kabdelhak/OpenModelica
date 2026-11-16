@@ -91,6 +91,10 @@ and their ``index.json`` index file with all the library metadata are installed 
 Linux and in the ``%AppData%\.openmodelica\libraries`` directory on Windows. Note that these directories are user-specific, so if there are
 multiple users on the same computer, each of them will install and manage his/her own set of libraries independently from the others.
 
+The Package Manager can only be used if this directory is in the ``OPENMODELICALIBRARY``, which is the default. If you set
+``OPENMODELICALIBRARY`` yourself, include the directory as the same text that ``getHomeDirectoryPath()`` returns, followed by
+``/.openmodelica/libraries``. Otherwise ``installPackage`` gives an error that the package index cannot be used.
+
 The Package Manager may install multiple builds of the same library version in your own package manager directory,
 if they are indexed on the OSMC servers. When this happens, they are distinguished among each other by means of
 `semver <https://semver.org/#semantic-versioning-specification-semver>`_-style pre- or post-release metadata in the
@@ -108,10 +112,10 @@ In any case, semver version semantics is only used to order the releases, while 
 is determined exclusively on the basis of ``noneFromVersion`` annotations.
 
 When installing OpenModelica, a cached version of the latest versions of the Modelica Standard Library is included in the
-installation files. As soon as a user starts any OpenModelica tool (e.g., OMEdit, OMNotebook, OMShell, or direct command-line
-invocation of omc), if the user's ``.openmodelica`` directory is empty the Modelica Standard Library will be installed
+installation files. As soon as an OpenModelica tool loads a library (e.g., OMEdit when it starts, or ``loadModel`` in a script),
+if the user's ``.openmodelica/libraries`` directory contains no libraries, the Modelica Standard Library will be installed
 automatically using this cached version. This happens when using OpenModelica for the first time, or if the contents of the
-``.openmodelica`` directory have been deleted to get rid of all installed libraries. This automatic installation needs no
+``.openmodelica/libraries`` directory have been deleted to get rid of all installed libraries. This automatic installation needs no
 Internet connection, so it also works behind firewalls or in set-ups with limited available bandwidth. Therefore, the Modelica
 Standard Library is immediately available without the need of using the package manager explicitly. It is then possible
 to install and manage other libraries using the package manager, as explained previously.
@@ -198,6 +202,18 @@ notifications and error messages.
 - :ref:`installPackage(Buildings, "7.0.0", exactMatch = true) <installPackage>` - install version ``7.0.0`` even if there are more recent
   backwards-compatible versions available, *and all its dependencies*;
 - :ref:`upgradeInstalledPackages(installNewestVersions = true) <upgradeInstalledPackages>` - installs the latest available version of all installed packages.
+
+Using the Package Manager from the omc command line
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+omc loads the libraries that follow the model or script on the command line. A version can follow
+the name of a library after a space; it is used as in :ref:`loadModel <loadModel>`.
+With ``--installMissingPackages``, omc installs the libraries that it must load but that are not installed,
+also the libraries in uses-annotations, instead of only telling how to install them:
+
+.. code-block:: sh
+
+  omc --installMissingPackages Model.mo "Modelica 4.0.0" "Buildings 9.1.1"
 
 How the package index works
 ---------------------------

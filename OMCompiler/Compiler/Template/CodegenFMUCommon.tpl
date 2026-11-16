@@ -221,7 +221,7 @@ case SIMVAR(__) then
       <!-- Index of variable = "<%getVariableFMIIndex(simVar)%>" -->
       <ScalarVariable
         <%ScalarVariableAttribute2(simVar, simCode)%>>
-        <%ScalarVariableType2(simVar, stateVars)%>
+        <%ScalarVariableType2(simVar, simCode, stateVars)%>
       </ScalarVariable>
       >>
     else
@@ -387,10 +387,10 @@ match fmiModelStructure
 case SOME(fmistruct as FMIMODELSTRUCTURE(__)) then
   <<
   <ModelStructure>
-    <%ModelStructureOutputs(fmistruct.fmiOutputs)%>
-    <%ModelStructureDerivatives(fmistruct.fmiDerivatives)%>
-    <% if Flags.getConfigBool(Flags.EXPORT_CLOCKS_IN_MODELDESCRIPTION) then ModelStructureDiscreteStates(fmistruct.fmiDiscreteStates) else "" %>
-    <%ModelStructureInitialUnknowns(fmistruct.fmiInitialUnknowns)%>
+    <%ModelStructureOutputs(fmistruct.fmiOutputs, fmistruct.hasDependencies)%>
+    <%ModelStructureDerivatives(fmistruct.fmiDerivatives, fmistruct.hasDependencies)%>
+    <% if Flags.getConfigBool(Flags.EXPORT_CLOCKS_IN_MODELDESCRIPTION) then ModelStructureDiscreteStates(fmistruct.fmiDiscreteStates, fmistruct.hasDependencies) else "" %>
+    <%ModelStructureInitialUnknowns(fmistruct.fmiInitialUnknowns, fmistruct.hasDependencies)%>
   </ModelStructure>
   >>
 else
@@ -455,7 +455,7 @@ case SIMCODE(modelInfo = MODELINFO(__)) then
     >>
 end TypeDefinitionsClocks;
 
-template ModelStructureOutputs(FmiOutputs fmiOutputs)
+template ModelStructureOutputs(FmiOutputs fmiOutputs, Boolean hasDependencies)
  "Generates Model Structure Outputs."
 ::=
 match fmiOutputs
@@ -463,12 +463,12 @@ case FMIOUTPUTS(fmiUnknownsList={}) then ""
 case FMIOUTPUTS(__) then
   <<
   <Outputs>
-    <%ModelStructureUnknowns(fmiUnknownsList)%>
+    <%ModelStructureUnknowns(fmiUnknownsList, hasDependencies)%>
   </Outputs>
   >>
 end ModelStructureOutputs;
 
-template ModelStructureDerivatives(FmiDerivatives fmiDerivatives)
+template ModelStructureDerivatives(FmiDerivatives fmiDerivatives, Boolean hasDependencies)
  "Generates Model Structure Derivatives."
 ::=
 match fmiDerivatives
@@ -476,12 +476,12 @@ case FMIDERIVATIVES(fmiUnknownsList={}) then ""
 case FMIDERIVATIVES(__) then
   <<
   <Derivatives>
-    <%ModelStructureUnknowns(fmiUnknownsList)%>
+    <%ModelStructureUnknowns(fmiUnknownsList, hasDependencies)%>
   </Derivatives>
   >>
 end ModelStructureDerivatives;
 
-template ModelStructureDiscreteStates(FmiDiscreteStates fmiDiscreteStates)
+template ModelStructureDiscreteStates(FmiDiscreteStates fmiDiscreteStates, Boolean hasDependencies)
  "Generates Model Structure DiscreteStates."
 ::=
 match fmiDiscreteStates
@@ -490,12 +490,12 @@ case FMIDISCRETESTATES(fmiUnknownsList={}) then ""
 case FMIDISCRETESTATES(__) then
   <<
   <DiscreteStates>
-    <%ModelStructureUnknowns(fmiUnknownsList)%>
+    <%ModelStructureUnknowns(fmiUnknownsList, hasDependencies)%>
   </DiscreteStates>
   >>
 end ModelStructureDiscreteStates;
 
-template ModelStructureInitialUnknowns(FmiInitialUnknowns fmiInitialUnknowns)
+template ModelStructureInitialUnknowns(FmiInitialUnknowns fmiInitialUnknowns, Boolean hasDependencies)
  "Generates Model Structure InitialUnknowns."
 ::=
 match fmiInitialUnknowns
@@ -503,27 +503,27 @@ case FMIINITIALUNKNOWNS(fmiUnknownsList={}) then ""
 case FMIINITIALUNKNOWNS(__) then
   <<
   <InitialUnknowns>
-    <%ModelStructureUnknowns(fmiUnknownsList)%>
+    <%ModelStructureUnknowns(fmiUnknownsList, hasDependencies)%>
   </InitialUnknowns>
   >>
 end match
 end ModelStructureInitialUnknowns;
 
-template ModelStructureUnknowns(list<FmiUnknown> fmiUnknownsList)
+template ModelStructureUnknowns(list<FmiUnknown> fmiUnknownsList, Boolean hasDependencies)
  "Generates Model Structure Unknowns"
 ::=
   <<
-  <%fmiUnknownsList |> fmiUnknown => FmiUnknownAttributes(fmiUnknown) ;separator="\n"%>
+  <%fmiUnknownsList |> fmiUnknown => FmiUnknownAttributes(fmiUnknown, hasDependencies) ;separator="\n"%>
   >>
 end ModelStructureUnknowns;
 
-template FmiUnknownAttributes(FmiUnknown fmiUnknown)
+template FmiUnknownAttributes(FmiUnknown fmiUnknown, Boolean hasDependencies)
  "Generates Model Structure Unknown attributes"
 ::=
 match fmiUnknown
 case FMIUNKNOWN(__) then
   <<
-  <Unknown index="<%index%>"<%FmiUnknownDependencies(dependencies)%><%FmiUnknownDependenciesKind(dependenciesKind)%> />
+  <Unknown index="<%index%>"<%if hasDependencies then '<%FmiUnknownDependencies(dependencies)%><%FmiUnknownDependenciesKind(dependenciesKind)%>'%> />
   >>
 end FmiUnknownAttributes;
 
@@ -629,27 +629,27 @@ match simCode
   else ""
 end getNumberOfEventIndicators;
 
-template ScalarVariableType2(SimVar simvar, list<SimVar> stateVars)
+template ScalarVariableType2(SimVar simvar, SimCode simCode, list<SimVar> stateVars)
  "Generates code for ScalarVariable Type file for FMU 2.0 target."
 ::=
 match simvar
 case SIMVAR(__) then
   match type_
-    case T_REAL(__) then '<Real<%ScalarVariableTypeCommonAttribute2(simvar, stateVars)%>/>'
-    case T_INTEGER(__) then '<Integer<%ScalarVariableTypeCommonAttribute2(simvar, stateVars)%>/>'
-    case T_BOOL(__) then '<Boolean<%ScalarVariableTypeCommonAttribute2(simvar, stateVars)%>/>'
-    case T_STRING(__) then '<String<%ScalarVariableTypeCommonAttribute2(simvar, stateVars)%>/>'
-    case T_ENUMERATION(__) then '<Enumeration declaredType="<%AbsynUtil.pathString(path, ".", false, false)%>"<%ScalarVariableTypeCommonAttribute2(simvar, stateVars)%>/>'
+    case T_REAL(__) then '<Real<%ScalarVariableTypeCommonAttribute2(simvar, simCode, stateVars)%>/>'
+    case T_INTEGER(__) then '<Integer<%ScalarVariableTypeCommonAttribute2(simvar, simCode, stateVars)%>/>'
+    case T_BOOL(__) then '<Boolean<%ScalarVariableTypeCommonAttribute2(simvar, simCode, stateVars)%>/>'
+    case T_STRING(__) then '<String<%ScalarVariableTypeCommonAttribute2(simvar, simCode, stateVars)%>/>'
+    case T_ENUMERATION(__) then '<Enumeration declaredType="<%AbsynUtil.pathString(path, ".", false, false)%>"<%ScalarVariableTypeCommonAttribute2(simvar, simCode, stateVars)%>/>'
     else 'UNKOWN_TYPE'
 end ScalarVariableType2;
 
-template ScalarVariableTypeCommonAttribute2(SimVar simvar, list<SimVar> stateVars)
+template ScalarVariableTypeCommonAttribute2(SimVar simvar, SimCode simCode, list<SimVar> stateVars)
  "Generates code for ScalarVariable Type file for FMU 2.0 target."
 ::=
 match simvar
 case SIMVAR(__) then
   let startString = StartString2(simvar)
-  let extraAttributes = '<%DerivativeVarIndex(simvar,stateVars)%><%MinString2(simvar)%><%MaxString2(simvar)%><%NominalString2(simvar)%><%UnitString2(simvar)%><%relativeQuantity(simvar)%>'
+  let extraAttributes = '<%DerivativeVarIndex(simvar,stateVars)%><%MinString2(simvar)%><%MaxString2(simvar)%><%NominalString2(simvar)%><%UnitString2(simvar, simCode)%><%relativeQuantity(simvar)%>'
   <<
   <%startString%><%extraAttributes%>
   >>
@@ -744,20 +744,9 @@ case SIMVAR(nominalValue = nominalValue) then
     else ''
 end NominalString2;
 
-template UnitString2(SimVar simvar)
-::=
-match simvar
-case SIMVAR(unit = unit, displayUnit = displayUnit) then
-  let unitString = if unit then ' unit="<%Util.escapeModelicaStringToXmlString(unit)%>"'
-  let displayUnitString = if displayUnit then ' displayUnit="<%Util.escapeModelicaStringToXmlString(displayUnit)%>"'
-  //'<%unitString%><%displayUnitString%>' skip displayUnit because FMI2XML fails for e.g. bar
-  '<%unitString%>'
-end UnitString2;
-
-template UnitString3(SimVar simvar, SimCode simCode)
- "UnitString2 with the display unit, which FMI 3.0 may name now that the unit
-  definitions declare it. Left off where it resolved to no <DisplayUnit>, which a
-  variable may not name."
+template UnitString2(SimVar simvar, SimCode simCode)
+ "The display unit is left out unless UnitDefinitions declare it as a <DisplayUnit>
+  of the unit; FMI 2.0 and 3.0 do not allow a variable to name any other."
 ::=
 match simvar
 case SIMVAR(unit = unit, displayUnit = displayUnit) then
@@ -765,19 +754,29 @@ case SIMVAR(unit = unit, displayUnit = displayUnit) then
   let displayUnitString = if declaredDisplayUnit(unit, displayUnit, simCode) then
         ' displayUnit="<%Util.escapeModelicaStringToXmlString(displayUnit)%>"'
   '<%unitString%><%displayUnitString%>'
-end UnitString3;
+end UnitString2;
 
 template declaredDisplayUnit(String unit, String displayUnit, SimCode simCode)
- "Non-empty when `displayUnit` is another unit of `unit`\'s dimensions, which is exactly
-  when UnitDefinitions nested it as a <DisplayUnit> of it."
+ "Non-empty when `displayUnit` is another unit of `unit`\'s dimensions, or one of its
+  own display units, which is exactly when UnitDefinitions nested it as a <DisplayUnit> of it."
 ::=
 match simCode
 case SIMCODE(modelInfo=MODELINFO(unitDefinitions=unitDefinitions)) then
   let dims = (unitDefinitions |> u => unitDimensionsNamed(u, unit))
   let displayDims = (unitDefinitions |> u => unitDimensionsNamed(u, displayUnit))
-  if boolAnd(boolNot(stringEq(dims, "")),
+  let nested = (unitDefinitions |> u => nestedDisplayUnitNamed(u, unit, displayUnit))
+  if nested then "declared"
+  else if boolAnd(boolNot(stringEq(dims, "")),
              boolAnd(stringEq(dims, displayDims), boolNot(stringEq(unit, displayUnit)))) then "declared"
 end declaredDisplayUnit;
+
+template nestedDisplayUnitNamed(UnitDefinition unitDefinition, String wantedUnit, String wantedDisplayUnit)
+::=
+match unitDefinition
+case UNITDEFINITION(name=unitName, displayUnits=nested) then
+  if stringEq(unitName, wantedUnit) then
+    (nested |> DISPLAYUNIT(name=displayName) => if stringEq(displayName, wantedDisplayUnit) then "nested")
+end nestedDisplayUnitNamed;
 
 template unitDimensionsNamed(UnitDefinition unitDefinition, String wanted)
  "This unit\'s dimensions when it is the one named, so a fold over the list picks it out.
@@ -837,10 +836,10 @@ template UnitDefinitionsHelper1(UnitDefinition unitDefinition, list<UnitDefiniti
  "helper function to generates code for UnitDefinition for FMU target."
 ::=
 match unitDefinition
-case UNITDEFINITION(name=name, baseUnit=baseUnit) then
+case UNITDEFINITION(name=name, baseUnit=baseUnit, displayUnits=nested) then
   <<
   <Unit <%unitDefinitionAttribute(name)%>>
-    <%baseUnitAttributes(baseUnit)%><%displayUnits(name, baseUnit, allUnits)%>
+    <%baseUnitAttributes(baseUnit)%><%displayUnits(name, baseUnit, allUnits)%><%nested |> d => nestedDisplayUnit(d)%>
   </Unit>
   >>
 end UnitDefinitionsHelper1;
@@ -868,12 +867,19 @@ case UNITDEFINITION(name=otherName, baseUnit=(otherBase as BASEUNIT(factor=displ
   '<%\n%><DisplayUnit name="<%Util.escapeModelicaStringToXmlString(otherName)%>" factor="<%realDiv(unitFactor, displayFactor)%>" offset="<%realDiv(realSub(unitOffset, displayOffset), displayFactor)%>"/>'
 end displayUnit;
 
+template nestedDisplayUnit(DisplayUnit displayUnit)
+::=
+match displayUnit
+case DISPLAYUNIT(name=displayName, factor=displayFactor, offset=displayOffset) then
+  '<%\n%><DisplayUnit name="<%Util.escapeModelicaStringToXmlString(displayName)%>" factor="<%displayFactor%>" offset="<%displayOffset%>"/>'
+end nestedDisplayUnit;
+
 template baseUnitDimensions(BaseUnit baseUnit)
- "The seven exponents as a key, so two units are compared as one string. Empty where
+ "The eight exponents as a key, so two units are compared as one string. Empty where
   there is no base unit to compare."
 ::=
 match baseUnit
-case BASEUNIT(__) then '<%s%>.<%m%>.<%kg%>.<%A%>.<%K%>.<%mol%>.<%cd%>'
+case BASEUNIT(__) then '<%s%>.<%m%>.<%kg%>.<%A%>.<%K%>.<%mol%>.<%cd%>.<%rad%>'
 end baseUnitDimensions;
 
 template unitDefinitionAttribute(String unitName)
@@ -897,10 +903,11 @@ case (BASEUNIT(__)) then
   let K_Value = if not intEq(K, 0) then 'K="<% K %>" ' else ""
   let mol_Value = if not intEq(mol, 0) then 'mol="<% mol %>" ' else ""
   let cd_Value = if not intEq(cd, 0) then 'cd="<% cd %>" ' else ""
+  let rad_Value = if not intEq(rad, 0) then 'rad="<% rad %>" ' else ""
   let factor_Value = if not realAlmostEq(factor, 1.0, 1e-6) then 'factor="<% factor %>" ' else ""
   let offset_Value = if not realAlmostEq(offset, 0.0, 1e-6) then 'offset="<% offset %>" ' else ""
   <<
-  <BaseUnit <%mol_Value%><%cd_Value%><%m_Value%><%s_Value%><%A_Value%><%K_Value%><%kg_Value%><%factor_Value%><%offset_Value%>/>
+  <BaseUnit <%mol_Value%><%cd_Value%><%m_Value%><%s_Value%><%A_Value%><%K_Value%><%kg_Value%><%rad_Value%><%factor_Value%><%offset_Value%>/>
   >>
 case (NOBASEUNIT()) then ""
 end baseUnitAttributes;

@@ -5,6 +5,7 @@ world.mos \
 noemit.mos \
 resultFileFlag.mos \
 resultFileFlagRealTime.mos \
+resultFileMissingDir.mos \
 Bug1687.mos \
 Bug1728.mos \
 Bug1987.mos \
@@ -84,7 +85,9 @@ TestSolve19.mos \
 Ticket5129.mos \
 ResultFileArrow.mos \
 ResultFileArrowTimeAlias.mos \
+StateDerivativeAliases.mos \
 FilterSimulationResultsCsvTime.mos \
+FilterSimulationResultsRemoveDescription.mos \
 ResultFileEnumeration.mos \
 ResultFileEnumerationInitXml.mos \
 VariableFilter.mos \

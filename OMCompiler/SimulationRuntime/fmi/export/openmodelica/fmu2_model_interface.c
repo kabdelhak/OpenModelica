@@ -32,12 +32,14 @@
 #include "../simulation/solver/initialization/initialization.h"
 #include "../simulation/solver/stateset.h"
 #include "../simulation/solver/model_help.h"
-#ifdef OMC_FMI_HAVE_CVODE
+#ifdef OMC_FMI_CO_SIMULATION
 #include "../simulation/solver/cvode_solver.h"
+#endif
+#ifdef OMC_FMI_DAE_MODE
+#include "../simulation/solver/dae_mode.h"
 #endif
 #ifdef OMC_FMI_HAVE_IDA
 #include "../simulation/solver/ida_solver.h"
-#include "../simulation/solver/dae_mode.h"
 #endif
 #if !defined(OMC_NUM_NONLINEAR_SYSTEMS) || OMC_NUM_NONLINEAR_SYSTEMS>0
 #include "../simulation/solver/nonlinearSystem.h"
@@ -127,6 +129,9 @@ const char* fmi2GetVersion()
  */
 fmi2Status fmi2DoStep(fmi2Component c, fmi2Real currentCommunicationPoint, fmi2Real communicationStepSize, fmi2Boolean noSetFMUStatePriorToCurrentPoint)
 {
+#ifndef OMC_FMI_CO_SIMULATION
+  return unsupportedFunction((ModelInstance *)c, "fmi2DoStep");
+#else
   ModelInstance *comp = (ModelInstance *)c;
   fmi2Boolean terminateSimulation = fmi2False;
   fmi2Status status;
@@ -147,6 +152,7 @@ fmi2Status fmi2DoStep(fmi2Component c, fmi2Real currentCommunicationPoint, fmi2R
   }
 
   return status;
+#endif
 }
 
 fmi2Status fmi2CancelStep(fmi2Component c)

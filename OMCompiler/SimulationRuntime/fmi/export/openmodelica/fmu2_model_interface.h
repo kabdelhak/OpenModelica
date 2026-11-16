@@ -96,6 +96,7 @@ typedef struct {
 
   int _need_update;
   int _held_assert_logged;
+  char _held_assert[2048];   /* the first held assert() not yet settled */
   int _event_found;
   int _terminate_simulation_requested;
   fmi2Boolean terminated;
@@ -117,9 +118,11 @@ typedef struct {
   unsigned char* eqMask;
   int _tunable_dirty;
   int _tunable_applied;
+  int _step_event;                 /* CS: the next step starts with an event update */
 } ModelInstance;
 
 typedef struct {
+  ModelState mode;
   RINGBUFFER* simulationData;
   modelica_real* realParameter;
   modelica_integer* integerParameter;

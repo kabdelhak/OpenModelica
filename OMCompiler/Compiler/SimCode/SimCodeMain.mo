@@ -754,6 +754,7 @@ algorithm
       // translateModel records the lowering error and fails, so the message
       // surfaces (getErrorString / OMEdit) instead of a later "no prepared model".
       CodegenWasmJit.translateModel(simCode);
+      writeExternalFunctionsFile(simCode);
       // The wasm module carries its own metadata; *_init.xml is only read by
       // OMEdit's variable browser and *_info.json only by its transformational
       // debugger, so the latter is written only when debugging is asked for
@@ -792,6 +793,23 @@ algorithm
   setGlobalRoot(Global.optionSimCode, NONE());
 end callTargetTemplates;
 
+protected function writeExternalFunctionsFile
+  "Writes <prefix>_external_functions.json, the names of the external functions
+   the model calls, as the C target does. OMEdit checks it before a run."
+  input SimCode.SimCode simCode;
+protected
+  list<String> names = {};
+algorithm
+  for fn in simCode.modelInfo.functions loop
+    names := match fn
+      case SimCodeFunction.EXTERNAL_FUNCTION() then ("\"" + fn.extName + "\"") :: names;
+      else names;
+    end match;
+  end for;
+  System.writeFile(simCode.fileNamePrefix + "_external_functions.json",
+                   "[\n" + stringDelimitList(listReverse(names), ",\n") + "\n]");
+end writeExternalFunctionsFile;
+
 protected function callTargetTemplatesCPP
   input SimCode.SimCode iSimCode;
 algorithm
@@ -823,7 +841,7 @@ algorithm
       low := System.tolower(tok);
       if StringUtil.endsWith(low, ".dxf") or StringUtil.endsWith(low, ".stl") or
          StringUtil.endsWith(low, ".obj") or StringUtil.endsWith(low, ".3ds") then
-        if System.stringFind(tok, "modelica://") == 0 then
+        if StringUtil.startsWith(low, "modelica:/") then
           path := ProgramUtil.getFullPathFromUri(program, tok, true);
         elseif System.stringFind(tok, "file://") == 0 then
           path := substring(tok, 8, stringLength(tok));
@@ -1075,8 +1093,8 @@ algorithm
       Boolean needSundials = false;
       String fileprefix, fileNamePrefixHash;
       String install_include_omc_dir, install_include_omc_c_dir, install_share_buildproject_dir, install_fmu_sources_dir, fmu_tmp_sources_dir;
-      String cmakelistsStr, needCvode;
-      Boolean needIda;
+      String cmakelistsStr;
+      Boolean daeModeFmu, needIda;
       String modelDefinesHeaderStr;
       String fmu_dummy_include_defines;
       String needModelicaExternalC, cmakeCode;
@@ -1086,7 +1104,7 @@ algorithm
       list<String> simrt_mixed_solver_sources, fmi_export_files, model_gen_files, model_all_gen_files, shared_source_files;
       list<String> rust_crate_roots;
       list<String> simrt_c_sources;
-      Boolean rustRuntime, rustFmi;
+      Boolean rustRuntime, rustFmi, coSimulation;
       Boolean withFMI2 = Flags.getConfigBool(Flags.FMU_WITH_FMI2);
       SimCode.VarInfo varInfo;
     case (SimCode.SIMCODE(),"wasm-jit")
@@ -1256,23 +1274,29 @@ algorithm
           cminpack_sources := RuntimeSources.cminpack_sources;
         end if;
 
-        // The in-FMU CVODE integrator (s:cvode) is a Co-Simulation feature, and
-        // OpenModelica exports FMI 1.0 as Model Exchange only.
-        if SimCodeUtil.cvodeFmiFlagIsSet(simCode.fmiSimulationFlags) and FMUVersion == "1.0" then
-          Error.addCompilerWarning("OpenModelica exports FMI 1.0 as Model Exchange only (Co-Simulation export requires FMI 2.0). A model-exchange FMU is integrated by the importer, so the in-FMU CVODE integrator does not apply. The 's:cvode' simulation flag is ignored for this FMI 1.0 export.");
-        end if;
-
-        // A --daeMode Co-Simulation FMU integrates its residual form with IDA.
-        needIda := isSome(simCode.daeModeData) and not rustRuntime;
+        // An FMU of a --daeMode model evaluates the residual form with dae_mode.c, which in
+        // fmi-ls-dae's ODE mode hands it to the nonlinear solvers (initDAEModeExplicitNLS).
+        // Only its Co-Simulation part integrates the residual form, with IDA.
+        daeModeFmu := isSome(simCode.daeModeData) and not rustRuntime;
+        needIda := daeModeFmu and FMI.isFMICSType(FMUType);
+        // The C Co-Simulation interface; it has CVODE also with s:euler, so that
+        // _flags.json can select CVODE without a rebuild.
+        coSimulation := FMUVersion <> "1.0" and not rustFmi and FMI.isFMICSType(FMUType);
 
         // The linear and non-linear solvers of the C runtime use SuiteSparse, SUNDIALS
         // and Lis, as in a simulation.
         if rustRuntime then
           simrt_c_sundials_sources := {};
           solver_library_sources := {};
+          // A rebuild of the runtime with cargo builds SUNDIALS and KLU from these.
+          if not listEmpty(rust_crate_roots) then
+            copyFiles(RuntimeSources.solver_library_files, source=install_fmu_sources_dir, destination=fmu_tmp_sources_dir);
+            copyFiles(RuntimeSources.solver_library_ida_files, source=install_fmu_sources_dir, destination=fmu_tmp_sources_dir);
+          end if;
         else
           simrt_c_sundials_sources := List.flatten({RuntimeSources.simrt_c_sundials_sources,
-            if SimCodeUtil.cvodeFmiFlagIsSet(simCode.fmiSimulationFlags) and FMUVersion <> "1.0" then RuntimeSources.simrt_c_cvode_sources else {},
+            if coSimulation then RuntimeSources.simrt_c_cvode_sources else {},
+            if daeModeFmu then RuntimeSources.simrt_c_dae_mode_sources else {},
             if needIda then RuntimeSources.simrt_c_ida_sources else {}});
           copyFiles(simrt_c_sundials_sources, source=install_fmu_sources_dir, destination=fmu_tmp_sources_dir);
           copyFiles(RuntimeSources.solver_library_files, source=install_fmu_sources_dir, destination=fmu_tmp_sources_dir);
@@ -1285,7 +1309,8 @@ algorithm
           // <SourceFiles> are compiled without definitions: omc_simulation_settings.h
           // carries them, and omc_config.h for a runtime source that includes it first.
           fmu_solver_defines := "#define WITH_SUITESPARSE 1" +
-            (if SimCodeUtil.cvodeFmiFlagIsSet(simCode.fmiSimulationFlags) and FMUVersion <> "1.0" then "\n#define OMC_FMI_HAVE_CVODE 1" else "") +
+            (if coSimulation then "\n#define OMC_FMI_CO_SIMULATION 1" else "") +
+            (if daeModeFmu then "\n#define OMC_FMI_DAE_MODE 1" else "") +
             (if needIda then "\n#define OMC_FMI_HAVE_IDA 1" else "");
           System.writeFile(fmu_tmp_sources_dir + "omc_config.h", "#include \"omc_simulation_settings.h\"\n");
         end if;
@@ -1294,7 +1319,7 @@ algorithm
         simrt_linear_solver_sources := if varInfo.numLinearSystems > 0 and not rustRuntime then RuntimeSources.simrt_linear_solver_sources else {};
         copyFiles(simrt_linear_solver_sources, source=install_fmu_sources_dir, destination=fmu_tmp_sources_dir);
 
-        simrt_non_linear_solver_sources := if varInfo.numNonLinearSystems > 0 and not rustRuntime then RuntimeSources.simrt_non_linear_solver_sources else {};
+        simrt_non_linear_solver_sources := if (varInfo.numNonLinearSystems > 0 or daeModeFmu) and not rustRuntime then RuntimeSources.simrt_non_linear_solver_sources else {};
         copyFiles(simrt_non_linear_solver_sources, source=install_fmu_sources_dir, destination=fmu_tmp_sources_dir);
 
         simrt_mixed_solver_sources := if varInfo.numMixedSystems > 0 and not rustRuntime then RuntimeSources.simrt_mixed_solver_sources else {};
@@ -1440,6 +1465,7 @@ algorithm
         cmakelistsStr := System.stringReplace(cmakelistsStr, "@FMU_NAME_HASH_IN@", fileNamePrefixHash);
 
         cmakelistsStr := System.stringReplace(cmakelistsStr, "@FMU_NAME_IN@", System.makeC89Identifier(simCode.fileNamePrefix)); // the modelIdentifier
+        cmakelistsStr := System.stringReplace(cmakelistsStr, "@FMU_FILE_PREFIX_IN@", simCode.fileNamePrefix);
         cmakelistsStr := System.stringReplace(cmakelistsStr, "@FMU_TARGET_NAME@", simCode.fmuTargetName);  // Name with dots
 
         // Include debugging symbols?
@@ -1451,12 +1477,10 @@ algorithm
         // Set CMake runtime dependencies level
         () := match Flags.getConfigString(Flags.FMU_RUNTIME_DEPENDS)
           local
-            SemanticVersion.Version cmakeVersion;
-            SemanticVersion.Version minimumVersion;
+            String cmakeVersion;
           case "default" algorithm
-            cmakeVersion := SimCodeUtil.getCMakeVersion();
-            minimumVersion := SemanticVersion.SEMVER(3, 21, 0, {}, {}); // v3.21.0
-            if SemanticVersion.compare(minimumVersion, cmakeVersion) <= 0 /* minimumVersion <= cmakeVersion */ then
+            cmakeVersion := SimCodeUtil.getCMakeVersion(logDirectory=fmu_tmp_sources_dir);
+            if SemanticVersion.compare("3.21.0", cmakeVersion) <= 0 then
               cmakelistsStr := System.stringReplace(cmakelistsStr, "@RUNTIME_DEPENDENCIES_LEVEL@", "\"modelica\"");
             else
               cmakelistsStr := System.stringReplace(cmakelistsStr, "@RUNTIME_DEPENDENCIES_LEVEL@", "\"none\"");
@@ -1478,8 +1502,7 @@ algorithm
 
         // Add external libraries and includes
         cmakelistsStr := System.stringReplace(cmakelistsStr, "@FMI_INTERFACE_HEADER_FILES_DIRECTORY@", "\"" + Settings.getInstallationDirectoryPath() + "/include/omc/c/fmi" + "\"");
-        needCvode := if FMUVersion <> "1.0" and not rustFmi and SimCodeUtil.cvodeFmiFlagIsSet(simCode.fmiSimulationFlags) then "ON" else "OFF";
-        cmakelistsStr := System.stringReplace(cmakelistsStr, "@NEED_CVODE@", needCvode);
+        cmakelistsStr := System.stringReplace(cmakelistsStr, "@NEED_DAE_MODE@", if daeModeFmu then "ON" else "OFF");
         cmakelistsStr := System.stringReplace(cmakelistsStr, "@NEED_IDA@", if needIda then "ON" else "OFF");
         // --simCodeTarget=C+Rust: name the installed archive, which is what this
         // installation builds the FMU against. Rebuilding the FMU elsewhere finds
@@ -1665,7 +1688,7 @@ protected
 algorithm
   // A URI cannot contain any of these unencoded, so tokenizing on them lifts the
   // URIs out of the markup without needing to parse it.
-  uris := List.uniqueOnTrue(list(u for u guard StringUtil.startsWith(u, "modelica://")
+  uris := List.uniqueOnTrue(list(u for u guard StringUtil.startsWith(System.tolower(u), "modelica:/")
                                  in System.strtok(page, "\"'<> \t\n\r")), stringEq);
   for uri in uris loop
     try
@@ -2198,7 +2221,7 @@ algorithm
   nf_api := FlagsUtil.set(Flags.NF_API, false);
 
   System.realtimeTick(ClockIndexes.RT_CLOCK_BACKEND);
-  bdae := NBackendDAE.lower(inFlatModel, funcMap);
+  bdae := NBackendDAE.lower(inFlatModel, funcMap, inFileNamePrefix, simSettingsSimflags(inSimSettingsOpt), SymbolTable.getAbsyn());
   if Flags.isSet(Flags.OPT_DAE_DUMP) then
     print(NBackendDAE.toString(bdae, "(After Lowering)"));
   end if;
@@ -2252,6 +2275,7 @@ protected
   SimCodeFunction.MakefileParams makefileParams;
   SimCode.SpatialDistributionInfo spatialInfo;
   list<tuple<Integer, tuple<DAE.Exp, DAE.Exp, DAE.Exp>>> delayedExps;
+  list<tuple<DAE.Exp, tuple<DAE.Exp, DAE.Exp, DAE.Exp>, list<BackendDAE.SimIterator>>> delayedLoops;
   Integer maxDelayedExpIndex;
   Integer uniqueEqIndex = 1;
   Boolean tmpB;
@@ -2330,7 +2354,7 @@ algorithm
     // create make file params
     makefileParams := SimCodeFunctionUtil.createMakefileParams(includeDirs, libs, libPaths, false, false);
     //create delay exps
-    (delayedExps, maxDelayedExpIndex) := SimCodeUtil.extractDelayedExpressions(inBackendDAE);
+    (delayedExps, maxDelayedExpIndex, delayedLoops) := SimCodeUtil.extractDelayedExpressions(inBackendDAE);
     spatialInfo := SimCodeUtil.extractSpatialDistributionInfo(inBackendDAE);
 
     // created event suff e.g. zeroCrossings, samples, ...
@@ -2573,7 +2597,7 @@ algorithm
       discreteModelVars           = discreteModelVars,
       extObjInfo                  = extObjInfo,
       makefileParams              = makefileParams,
-      delayedExps                 = SimCode.DELAYED_EXPRESSIONS(delayedExps, maxDelayedExpIndex, {}),
+      delayedExps                 = SimCode.DELAYED_EXPRESSIONS(delayedExps, maxDelayedExpIndex, delayedLoops),
       spatialInfo                 = spatialInfo,
       jacobianMatrices            = SymbolicJacs,
       simulationSettingsOpt       = simSettingsOpt,

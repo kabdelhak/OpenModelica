@@ -76,7 +76,6 @@ import SimCodeFunctionUtil;
 import SimCodeUtilShared;
 import StringUtil;
 import System;
-import UnitAbsyn;
 import UnitAbsynBuilder;
 import UnitParserExt;
 import UnorderedMap;
@@ -434,23 +433,33 @@ public function unitConversion
   output Boolean converts = false;
   output Real factor = 1.0;
   output Real offset = 0.0;
-protected
-  UnitAbsyn.Unit u1, u2;
-  Real factor1, factor2, offset1, offset2;
 algorithm
   ErrorExt.setCheckpoint(getInstanceName());
   try
     UnitParserExt.initSIUnits();
-    (u1, factor1, offset1) := UnitAbsynBuilder.str2unitWithScaleFactor(to, NONE());
-    (u2, factor2, offset2) := UnitAbsynBuilder.str2unitWithScaleFactor(from, NONE());
-    true := valueEq(u1, u2);
-    factor := factor2/factor1;
-    offset := (offset2 - offset1)/factor1;
-    converts := true;
+    (converts, factor, offset) := UnitAbsynBuilder.convertUnits(to, from);
   else
   end try;
   ErrorExt.rollBack(getInstanceName());
+  if not converts then
+    factor := 1.0;
+    offset := 0.0;
+  end if;
 end unitConversion;
+
+public function radExponent
+  "The exponent of rad in a unit, or 0 where it cannot be parsed."
+  input String unit;
+  output Integer rad = 0;
+algorithm
+  ErrorExt.setCheckpoint(getInstanceName());
+  try
+    UnitParserExt.initSIUnits();
+    (rad, _) := UnitParserExt.angleExponents(unit);
+  else
+  end try;
+  ErrorExt.rollBack(getInstanceName());
+end radExponent;
 
 public function createCrefToSimVarHT "author: unknown and marcusw
  Create a hash table that maps all variable names (crefs) to the simVar objects."
@@ -3049,6 +3058,28 @@ algorithm
   vr := AvlTreeCRToInt.get(simCode.valueReferences, cr);
 end lookupVR;
 
+public function sortedValueReferences
+  "The (value reference, index) pairs of the crefs, sorted by value reference."
+  input list<tuple<Integer, DAE.ComponentRef>> crefs;
+  input SimCode.SimCode simCode;
+  output list<tuple<Integer, Integer>> vrIndexes = {};
+protected
+  Integer index;
+  DAE.ComponentRef cr;
+algorithm
+  for t in crefs loop
+    (index, cr) := t;
+    vrIndexes := (lookupVR(cr, simCode), index) :: vrIndexes;
+  end for;
+  vrIndexes := List.sort(vrIndexes, valueReferenceGreater);
+end sortedValueReferences;
+
+protected function valueReferenceGreater
+  input tuple<Integer, Integer> a;
+  input tuple<Integer, Integer> b;
+  output Boolean greater = Util.tuple21(a) > Util.tuple21(b);
+end valueReferenceGreater;
+
 public function isFMUSimCode
   "True when this SimCode was built for an FMU export, so `valueReferences` --
    what lookupVR and the FMI alias tables index -- is filled."
@@ -3063,7 +3094,8 @@ end isFMUSimCode;
 
 public function lookupVRForRealOutputDerivative
   "function which maps output Real var ValueReference to an internal real variable ValueReference of
-  pattern $X_der where x = varname, this function will be used by fmi2GetRealOutputDerivatives"
+  pattern $X_der where x = varname, this function will be used by fmi2GetRealOutputDerivatives.
+  -1 if there is no such variable, as in DAE mode."
   input DAE.ComponentRef cr;
   input SimCode.SimCode simCode;
   input String fmuType;
@@ -3075,11 +3107,26 @@ algorithm
     // map the cref to the internal real var (e.g) output Real y => $y_der
     outputRealDerivativeCref := ComponentReference.appendStringLastIdent("_der", cr); // append _der
     outputRealDerivativeCref := ComponentReference.prependStringCref("$", outputRealDerivativeCref); // prepend $
-    vr := AvlTreeCRToInt.get(simCode.valueReferences, outputRealDerivativeCref);
+    vr := Util.getOptionOrDefault(AvlTreeCRToInt.getOpt(simCode.valueReferences, outputRealDerivativeCref), -1);
   else
     vr := -1;
   end if;
 end lookupVRForRealOutputDerivative;
+
+public function maxOutputDerivativeOrder
+  "1 if lookupVRForRealOutputDerivative finds a derivative for each Real output, else 0."
+  input SimCode.SimCode simCode;
+  input String fmuType;
+  output Integer order = 1;
+algorithm
+  for v in simCode.modelInfo.vars.outputVars loop
+    order := match v
+      case SimCodeVar.SIMVAR(type_ = DAE.T_REAL())
+        guard lookupVRForRealOutputDerivative(v.name, simCode, fmuType) == -1 then 0;
+      else order;
+    end match;
+  end for;
+end maxOutputDerivativeOrder;
 
 public function fmi3ArrayView
   "The SimCode the FMI 3.0 modelDescription.xml is rendered from: one SimVar
@@ -3424,7 +3471,10 @@ algorithm
     vars.boolAlgVars, vars.boolParamVars, vars.stringAlgVars, vars.stringParamVars,
     vars.aliasVars, vars.intAliasVars, vars.boolAliasVars, vars.stringAliasVars});
   for v in allVars loop
-    om := connectorMemberOf(v);
+    om := match v.name
+      case DAE.CREF_QUAL(ident = DAE.derivativeNamePrefix) then NONE();
+      else connectorMemberOf(v);
+    end match;
     if isSome(om) then
       flat := Util.getOption(om) :: flat;
     end if;
@@ -4009,6 +4059,55 @@ algorithm
             else intReal(nnz) / intReal(size * size) < (if isLinear then maxDensityLinear else maxDensityNonlinear)
                  or size > minSize;
 end useSparseSolver;
+
+public function isCommonSubexpression
+  "A common subexpression temporary ($cse) holds a function call result. It is
+   no Modelica variable and does not count in pre(v) == v at the end of an event
+   iteration (#9598)."
+  input SimCodeVar.SimVar var;
+  output Boolean b = StringUtil.startsWith(ComponentReferenceBasics.crefFirstIdent(var.name), "$cse");
+end isCommonSubexpression;
+
+public function discreteChangeRanges
+  "The variables that checkForDiscreteChanges compares, as index ranges into
+   the modelData variable arrays: for the discrete Real, the Integer, the Boolean
+   and the String variables in turn the number of ranges, then each range as its
+   start and its end (exclusive)."
+  input SimCodeVar.SimVars vars;
+  output list<Integer> ranges;
+algorithm
+  ranges := List.flatten({
+    comparedRanges(vars.discreteAlgVars, listLength(vars.stateVars) + listLength(vars.derivativeVars) + listLength(vars.algVars)),
+    comparedRanges(vars.intAlgVars, 0),
+    comparedRanges(vars.boolAlgVars, 0),
+    comparedRanges(vars.stringAlgVars, 0)});
+end discreteChangeRanges;
+
+protected function comparedRanges
+  input list<SimCodeVar.SimVar> vars;
+  input Integer first "the index of the first of vars";
+  output list<Integer> ranges = {};
+protected
+  Integer i = first, n = 0, start = -1;
+algorithm
+  for var in vars loop
+    if isCommonSubexpression(var) then
+      if start >= 0 then
+        ranges := i :: start :: ranges;
+        n := n + 1;
+        start := -1;
+      end if;
+    elseif start < 0 then
+      start := i;
+    end if;
+    i := i + 1;
+  end for;
+  if start >= 0 then
+    ranges := i :: start :: ranges;
+    n := n + 1;
+  end if;
+  ranges := n :: listReverse(ranges);
+end comparedRanges;
 
 annotation(__OpenModelica_Interface="codegen_util");
 end SimCodeCodegenUtil;

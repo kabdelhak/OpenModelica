@@ -854,13 +854,13 @@ public
     end isNumericJacobian;
 
     function hasRuntimeSize
-    "a resizable dimension whose size depends on the resizable parameters,
-    unlike e.g. the range N:N (same as SimCodeCodegenUtil.isSymbolicArrayVar)"
-    input Dimension dim;
-    output Boolean b = Dimension.isResizable(dim) and not Expression.isInteger(Dimension.sizeExp(dim));
-  end hasRuntimeSize;
+      "a resizable dimension whose size depends on the resizable parameters,
+      unlike e.g. the range N:N (same as SimCodeCodegenUtil.isSymbolicArrayVar)"
+      input Dimension dim;
+      output Boolean b = Dimension.isResizable(dim) and not Expression.isInteger(Dimension.sizeExp(dim));
+    end hasRuntimeSize;
 
-  function solvesConstant
+    function solvesConstant
       "true if the strong component solves a constant variable"
       input StrongComponent comp;
       output Boolean b;

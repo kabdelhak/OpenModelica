@@ -1070,39 +1070,62 @@ case MODELINFO(vars=SIMVARS(__),varInfo=VARINFO(numIntAliasVars=numAliasVars, nu
 end setIntegerFunction2;
 
 template getBooleanFunction2(SimCode simCode, ModelInfo modelInfo)
- "Generates setBoolean function for c file."
+ "Generates getBoolean function for c file."
 ::=
 match modelInfo
-case MODELINFO(vars=SIMVARS(__)) then
+case MODELINFO(varInfo=VARINFO(numBoolAliasVars=numAliasVars, numBoolParams=numParams, numBoolAlgVars=numAlgVars)) then
+  let ixFirstParam = numAlgVars
+  let ixFirstAlias = intAdd(numParams, numAlgVars)
+  let ixEnd = intAdd(numAliasVars,intAdd(numParams, numAlgVars))
   <<
   fmi2Boolean getBoolean(ModelInstance* comp, const fmi2ValueReference vr) {
-    switch (vr) {
-      <%vars.boolAlgVars |> var => SwitchVars(simCode, var, "booleanVars") ;separator="\n"%>
-      <%vars.boolParamVars |> var => SwitchParameters(simCode, var, "booleanParameter") ;separator="\n"%>
-      <%vars.boolAliasVars |> var => SwitchAliasVars(simCode, var, "Boolean", "!") ;separator="\n"%>
-      default:
-        return fmi2False;
+    if (vr < <%ixFirstParam%>) {
+      return comp->fmuData->localData[0]->booleanVars[vr];
     }
+    if (vr < <%ixFirstAlias%>) {
+      return comp->fmuData->simulationInfo->booleanParameter[vr-<%ixFirstParam%>];
+    }
+    <% if numAliasVars then
+    <<
+    if (vr < <%ixEnd%>) {
+      int ix = comp->fmuData->callback->fmiBooleanAliasIndexes[vr-<%ixFirstAlias%>];
+      return ix>=0 ? getBoolean(comp, ix) : !getBoolean(comp, -(ix+1));
+    }
+    >>
+    %>
+    return fmi2False;
   }
 
   >>
 end getBooleanFunction2;
 
 template setBooleanFunction2(SimCode simCode, ModelInfo modelInfo)
- "Generates getBoolean function for c file."
+ "Generates setBoolean function for c file."
 ::=
 match modelInfo
-case MODELINFO(vars=SIMVARS(__)) then
+case MODELINFO(varInfo=VARINFO(numBoolAliasVars=numAliasVars, numBoolParams=numParams, numBoolAlgVars=numAlgVars)) then
+  let ixFirstParam = numAlgVars
+  let ixFirstAlias = intAdd(numParams, numAlgVars)
+  let ixEnd = intAdd(numAliasVars,intAdd(numParams, numAlgVars))
   <<
   fmi2Status setBoolean(ModelInstance* comp, const fmi2ValueReference vr, const fmi2Boolean value) {
-    switch (vr) {
-      <%vars.boolAlgVars |> var => SwitchVarsSet(simCode, var, "booleanVars") ;separator="\n"%>
-      <%vars.boolParamVars |> var => SwitchParametersSet(simCode, var, "booleanParameter") ;separator="\n"%>
-      <%vars.boolAliasVars |> var => SwitchAliasVarsSet(simCode, var, "Boolean", "!") ;separator="\n"%>
-      default:
-        return fmi2Error;
+    if (vr < <%ixFirstParam%>) {
+      comp->fmuData->localData[0]->booleanVars[vr] = value;
+      return fmi2OK;
     }
-    return fmi2OK;
+    if (vr < <%ixFirstAlias%>) {
+      comp->fmuData->simulationInfo->booleanParameter[vr-<%ixFirstParam%>] = value;
+      return fmi2OK;
+    }
+    <% if numAliasVars then
+    <<
+    if (vr < <%ixEnd%>) {
+      int ix = comp->fmuData->callback->fmiBooleanAliasIndexes[vr-<%ixFirstAlias%>];
+      return ix >= 0 ? setBoolean(comp, ix, value) : setBoolean(comp, -(ix+1), !value);
+    }
+    >>
+    %>
+    return fmi2Error;
   }
 
   >>
@@ -1112,16 +1135,27 @@ template getStringFunction2(SimCode simCode, ModelInfo modelInfo)
  "Generates getString function for c file."
 ::=
 match modelInfo
-case MODELINFO(vars=SIMVARS(__)) then
+case MODELINFO(varInfo=VARINFO(numStringAliasVars=numAliasVars, numStringParamVars=numParams, numStringAlgVars=numAlgVars)) then
+  let ixFirstParam = numAlgVars
+  let ixFirstAlias = intAdd(numParams, numAlgVars)
+  let ixEnd = intAdd(numAliasVars,intAdd(numParams, numAlgVars))
   <<
   fmi2String getString(ModelInstance* comp, const fmi2ValueReference vr) {
-    switch (vr) {
-      <%vars.stringAlgVars |> var => SwitchVars(simCode, var, "stringVars") ;separator="\n"%>
-      <%vars.stringParamVars |> var => SwitchParameters(simCode, var, "stringParameter") ;separator="\n"%>
-      <%vars.stringAliasVars |> var => SwitchAliasVars(simCode, var, "String", "") ;separator="\n"%>
-      default:
-        return "";
+    if (vr < <%ixFirstParam%>) {
+      return omc_string_data(comp->fmuData->localData[0]->stringVars[vr]);
     }
+    if (vr < <%ixFirstAlias%>) {
+      return omc_string_data(comp->fmuData->simulationInfo->stringParameter[vr-<%ixFirstParam%>]);
+    }
+    <% if numAliasVars then
+    <<
+    if (vr < <%ixEnd%>) {
+      int ix = comp->fmuData->callback->fmiStringAliasIndexes[vr-<%ixFirstAlias%>];
+      return getString(comp, ix >= 0 ? ix : -(ix+1));
+    }
+    >>
+    %>
+    return "";
   }
 
   >>
@@ -1131,17 +1165,29 @@ template setStringFunction2(SimCode simCode, ModelInfo modelInfo)
  "Generates setString function for c file."
 ::=
 match modelInfo
-case MODELINFO(vars=SIMVARS(__)) then
+case MODELINFO(varInfo=VARINFO(numStringAliasVars=numAliasVars, numStringParamVars=numParams, numStringAlgVars=numAlgVars)) then
+  let ixFirstParam = numAlgVars
+  let ixFirstAlias = intAdd(numParams, numAlgVars)
+  let ixEnd = intAdd(numAliasVars,intAdd(numParams, numAlgVars))
   <<
   fmi2Status setString(ModelInstance* comp, const fmi2ValueReference vr, fmi2String value) {
-    switch (vr) {
-      <%vars.stringAlgVars |> var => SwitchVarsSet(simCode, var, "stringVars") ;separator="\n"%>
-      <%vars.stringParamVars |> var => SwitchParametersSet(simCode, var, "stringParameter") ;separator="\n"%>
-      <%vars.stringAliasVars |> var => SwitchAliasVarsSet(simCode, var, "String", "") ;separator="\n"%>
-      default:
-        return fmi2Error;
+    if (vr < <%ixFirstParam%>) {
+      omc_string_move(&comp->fmuData->localData[0]->stringVars[vr], omc_string_new(value));
+      return fmi2OK;
     }
-    return fmi2OK;
+    if (vr < <%ixFirstAlias%>) {
+      omc_string_move(&comp->fmuData->simulationInfo->stringParameter[vr-<%ixFirstParam%>], omc_string_new(value));
+      return fmi2OK;
+    }
+    <% if numAliasVars then
+    <<
+    if (vr < <%ixEnd%>) {
+      int ix = comp->fmuData->callback->fmiStringAliasIndexes[vr-<%ixFirstAlias%>];
+      return setString(comp, ix >= 0 ? ix : -(ix+1), value);
+    }
+    >>
+    %>
+    return fmi2Error;
   }
 
   >>
@@ -1374,14 +1420,7 @@ match simCode
 case SIMCODE(modelStructure=SOME(FMIMODELSTRUCTURE(fmiInitialUnknowns=FMIINITIALUNKNOWNS(sortedUnknownCrefs=sortedUnknownCrefs)))) then
     <<
     /* function maps initialUnknowns UnknownVars ValueReferences to an internal partial derivatives index */
-    fmi2ValueReference mapInitialUnknownsdependentIndex(const fmi2ValueReference vr) {
-        switch (vr) {
-          <%sortedUnknownCrefs |> (index, cref) =>
-          'case <%lookupVR(cref, simCode)%>: return <%index%>; break;' ;separator="\n"%>
-          default:
-            return -1;
-        }
-    }
+    <%mapValueReferenceToIndex("mapInitialUnknownsdependentIndex", SimCodeCodegenUtil.sortedValueReferences(sortedUnknownCrefs, simCode))%>
     >>
 else
     <<
@@ -1400,14 +1439,7 @@ match simCode
 case SIMCODE(modelStructure=SOME(FMIMODELSTRUCTURE(fmiInitialUnknowns=FMIINITIALUNKNOWNS(sortedknownCrefs=sortedknownCrefs)))) then
     <<
     /* function maps initialUnknowns knownVars ValueReferences to an internal partial derivatives index */
-    fmi2ValueReference mapInitialUnknownsIndependentIndex(const fmi2ValueReference vr) {
-        switch (vr) {
-          <%sortedknownCrefs |> (index, cref) =>
-          'case <%lookupVR(cref, simCode)%>: return <%index%>; break;' ;separator="\n"%>
-          default:
-            return -1;
-        }
-    }
+    <%mapValueReferenceToIndex("mapInitialUnknownsIndependentIndex", SimCodeCodegenUtil.sortedValueReferences(sortedknownCrefs, simCode))%>
     >>
 else
     <<
@@ -1418,6 +1450,39 @@ else
     >>
 end match
 end mapInitialUnknownsIndependentCrefs;
+
+template mapValueReferenceToIndex(String name, list<tuple<Integer, Integer>> vrIndexes)
+ "A binary search in the value references, which are sorted."
+::=
+  let n = listLength(vrIndexes)
+  if vrIndexes then
+  <<
+  fmi2ValueReference <%name%>(const fmi2ValueReference vr) {
+    static const fmi2ValueReference vrs[<%n%>] = {
+      <%vrIndexes |> (vr, ix) => vr ;separator=",";align=20;alignSeparator=",\n"%>
+    };
+    static const fmi2ValueReference indexes[<%n%>] = {
+      <%vrIndexes |> (vr, ix) => ix ;separator=",";align=20;alignSeparator=",\n"%>
+    };
+    size_t lo = 0, hi = <%n%>;
+    while (lo < hi) {
+      size_t mid = lo + (hi - lo) / 2;
+      if (vrs[mid] < vr) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    return lo < <%n%> && vrs[lo] == vr ? indexes[lo] : (fmi2ValueReference)-1;
+  }
+  >>
+  else
+  <<
+  fmi2ValueReference <%name%>(const fmi2ValueReference vr) {
+    return -1;
+  }
+  >>
+end mapValueReferenceToIndex;
 
 template settingsfile(SimCode simCode, String solverDefines)
 "Generates content of omc_simulation_settings.h"
@@ -3212,6 +3277,7 @@ case "1.0" then
   end match
 case "2.0" then
   match fmiModelVariable
+  case REALVARIABLE(causality="independent") then ""
   case REALVARIABLE(__) then
     <<
     <%dumpFMIModelVariableVariability(variability)%><%dumpFMIModelVariableCausalityAndBaseType(causality, baseType, generateInputConnectors, generateOutputConnectors)%> <%name%><%dumpFMIRealModelVariableStartValue(FMUVersion, causality, hasStartValue, startValue, isFixed)%><%dumpFMIModelVariableDescription(description)%><%dumpFMIModelVariablePlacementAnnotation(x1Placement, x2Placement, y1Placement, y2Placement, generateInputConnectors, generateOutputConnectors, causality)%>;
@@ -3798,6 +3864,7 @@ case SIMCODE(modelInfo = MODELINFO(functions = functions, varInfo = vi as VARINF
   #include "util/integer_array.h"
   #include "util/boolean_array.h"
   #include "util/string_array.h"
+  #include "util/varinfo.h"
 
   OMC_DISABLE_OPT<%/* This function is very simple and doesn't need to be optimized. GCC/clang spend way too much time looking at it. */%>
 
@@ -3875,7 +3942,7 @@ template ScalarVariableFMU(SimVar simVar, String classType)
       <%infostr%>.comment = "<%description%>";
       <%getInfoArgsFMU(infostr+".info", info)%>
       <%DimensionsFMU(simVar, classType, ci)%>
-      <%ScalarVariableTypeFMU(attrstr, unit, displayUnit, minValue, maxValue, initialValue, nominalValue, isFixed, type_)%>
+      <%ScalarVariableTypeFMU(attrstr, infostr, unit, displayUnit, minValue, maxValue, initialValue, nominalValue, isFixed, type_)%>
       >>
 end ScalarVariableFMU;
 
@@ -3923,7 +3990,7 @@ template optInitValFMU(Option<Exp> exp, String default)
   else default
 end optInitValFMU;
 
-template ScalarVariableTypeFMU(String attrstr, String unit, String displayUnit, Option<DAE.Exp> minValue, Option<DAE.Exp> maxValue, Option<DAE.Exp> startValue, Option<DAE.Exp> nominalValue, Boolean isFixed, DAE.Type type_)
+template ScalarVariableTypeFMU(String attrstr, String infostr, String unit, String displayUnit, Option<DAE.Exp> minValue, Option<DAE.Exp> maxValue, Option<DAE.Exp> startValue, Option<DAE.Exp> nominalValue, Boolean isFixed, DAE.Type type_)
  "Generates code for ScalarVariable Type file for FMU target."
 ::=
   match type_
@@ -3935,7 +4002,8 @@ template ScalarVariableTypeFMU(String attrstr, String unit, String displayUnit, 
       put_real_element(<%optInitValFMU(maxValue,"DBL_MAX")%>, 0, &<%attrstr%>.max);
       <%attrstr%>.fixed = <%if isFixed then 1 else 0%>;
       <%attrstr%>.useNominal = <%if nominalValue then 1 else 0%>;
-      put_real_element(<%optInitValFMU(nominalValue,"1.0")%>, 0, &<%attrstr%>.nominal);
+      put_real_element(<%optInitValFMU(nominalValue,"1.0")%>, 0, &<%attrstr%>.positiveNominal);
+      normalizeNominal(&<%attrstr%>, <%infostr%>.name);
       put_real_element(<%optInitValFMU(startValue,"0.0")%>, 0, &<%attrstr%>.start);
       >>
     case T_INTEGER(__) then
@@ -3963,7 +4031,7 @@ template ScalarVariableTypeFMU(String attrstr, String unit, String displayUnit, 
       >>
     case T_ARRAY(ty=ty) then
       // non-scalarized array variable: emit the attributes using the element type
-      ScalarVariableTypeFMU(attrstr, unit, displayUnit, minValue, maxValue, startValue, nominalValue, isFixed, ty)
+      ScalarVariableTypeFMU(attrstr, infostr, unit, displayUnit, minValue, maxValue, startValue, nominalValue, isFixed, ty)
     else error(sourceInfo(), 'ScalarVariableTypeFMU: <%unparseType(type_)%>')
 end ScalarVariableTypeFMU;
 

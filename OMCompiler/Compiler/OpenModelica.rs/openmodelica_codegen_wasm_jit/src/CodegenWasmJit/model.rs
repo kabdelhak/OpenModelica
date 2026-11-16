@@ -264,6 +264,7 @@ pub(super) fn build_sim_model(
         // Mirroring the last accepted step's reals costs a copy per step, so only
         // a model with a method-1 linear system to read them asks for it.
         has_old_real: has_method1_linear(sim_code),
+        compiled_dae_mode: dae_mode.is_some(),
         resizable,
     };
     let counts_sz = resizable_counts(&counts, &dyn_vars);
@@ -656,7 +657,7 @@ pub(super) fn build_sim_model(
     ] {
         for (i, sv) in list.iter().enumerate() {
             let off = base + SimOff::from((i as u32) * 8);
-            nominal_defaults.push((off, const_value(&sv.nominalValue).unwrap_or(1.0).abs().max(1e-32)));
+            nominal_defaults.push((off, positive_nominal(const_value(&sv.nominalValue).unwrap_or(1.0))));
             if let Some(t) = attr_targets.of(&sv.name) {
                 t.nom_offs.push(off);
             }
@@ -1074,7 +1075,10 @@ pub(super) fn build_sim_model(
     // `functionUpdateBoundVariableAttributes` fills these slots from those.
     for (i, sv) in all_reals.iter().enumerate() {
         let nom_off = at_real(&lz.real_nom_off, &real_pos.fixed(i))?;
-        nominal_defaults.push((nom_off, literal_value(&sv.nominalValue).unwrap_or(1.0)));
+        nominal_defaults.push((
+            nom_off,
+            positive_nominal(literal_value(&sv.nominalValue).unwrap_or(1.0)),
+        ));
         if let Some(t) = attr_targets.of(&sv.name) {
             t.start_offs.push(at_real(&lz.start_off, &real_pos.fixed(i))?);
             t.raw_nom_offs.push(nom_off);
@@ -1084,7 +1088,7 @@ pub(super) fn build_sim_model(
     let mut dyn_defaults: Vec<(SimOff, Sz, ConstSlot, u32)> = dyn_scratch.fills.clone();
     let mut sidx = Sz::lit(states.len() as i64);
     for dv in &dyn_vars.states {
-        let nom = const_value(&dv.sv.nominalValue).unwrap_or(1.0).abs().max(1e-32);
+        let nom = positive_nominal(const_value(&dv.sv.nominalValue).unwrap_or(1.0));
         dyn_defaults.push((at_real(&lz.state_nom_off, &sidx)?, dv.len(), ConstSlot::f64(nom), 8));
         dyn_defaults.push((
             at_real(&lz.state_max_off, &sidx)?,
@@ -1101,7 +1105,7 @@ pub(super) fn build_sim_model(
         sidx = sidx + dv.len();
     }
     for (dv, idx) in &real_pos.dyn_reals {
-        let nom = literal_value(&dv.sv.nominalValue).unwrap_or(1.0);
+        let nom = positive_nominal(literal_value(&dv.sv.nominalValue).unwrap_or(1.0));
         dyn_defaults.push((at_real(&lz.real_nom_off, idx)?, dv.len(), ConstSlot::f64(nom), 8));
     }
     // The integrator loop calls `functionCheckAsserts`, whose index is only known
@@ -1328,6 +1332,14 @@ pub(super) fn build_sim_model(
     }
     let (soti, soti_dims) = soti_vars(vars, &array_runs, &dyn_vars)?;
     let meta_lay = meta_layout(&layout)?;
+    // C's `read_input_xml` warns for a literal nominal as it reads it.
+    let mut startup_warnings = Vec::new();
+    for sv in all_reals.iter().copied().chain(svs(&vars.paramVars)) {
+        if let Some(v) = literal_value(&sv.nominalValue) {
+            startup_warnings.extend(nominal_warning(&cref_display(&sv.name)?, v));
+        }
+    }
+    startup_warnings.extend(nls_warnings.iter().cloned());
     let mut meta = build_sim_meta(
         &meta_lay,
         &result_vars,
@@ -1347,7 +1359,7 @@ pub(super) fn build_sim_model(
         param_vars(vars)?,
         attr_log_entries(sim_code)?,
         removed_init_residuals(sim_code).iter().map(|e| dump_exp(e)).collect(),
-        nls_warnings.clone(),
+        startup_warnings,
         samples.iter().map(|s| s.index).collect(),
         soti,
         sens_params,
@@ -1430,10 +1442,15 @@ pub(super) fn build_sim_model(
     let destructors_idx = {
         use we::Instruction as I;
         let mut ctx = FnCtx::new_sim_params(sim_ctx(&var_map), &by_name, &mut literals, 1);
+        // A handle is 0 if initialization failed before its constructor ran.
         for &(didx, slot) in &destruct_calls {
+            let rel = ctx.emit_sim_base(slot)?;
+            ctx.emit(I::I32Load(crate::CodegenWasmJitFunctions::mem_arg(rel, 2)));
+            ctx.emit(I::If(we::BlockType::Empty));
             let rel = ctx.emit_sim_base(slot)?;
             ctx.emit(I::I32Load(crate::CodegenWasmJitFunctions::mem_arg(rel, 2))); // handle
             ctx.emit(I::Call(didx));
+            ctx.emit(I::End);
         }
         let (locals, instrs) = ctx.finish_sim();
         let mut f = we::Function::new(locals.into_iter().map(|t| (1u32, t)));
@@ -1812,7 +1829,7 @@ pub(super) fn build_sim_model(
             with_opt.sort_by_key(|&(off, _)| off);
             &with_opt
         };
-        bodies.push(build_update_bound_attrs_fn(
+        splits.push(build_update_bound_attrs_fn(
             sim_code,
             &layout,
             slots,
@@ -1821,6 +1838,9 @@ pub(super) fn build_sim_model(
             &var_map,
             &by_name,
             &mut literals,
+            eqfn_type,
+            &mut bodies,
+            &mut pool,
         )?);
         idx
     };
@@ -1831,7 +1851,7 @@ pub(super) fn build_sim_model(
             _ => None,
         })
         .collect();
-    if let Some(f) = build_tunable_attrs_fn(
+    let tunable_attrs = build_tunable_attrs_fn(
         sim_code,
         &layout,
         &attr_targets,
@@ -1839,10 +1859,10 @@ pub(super) fn build_sim_model(
         &by_name,
         &mut literals,
         &tunable_masks,
-    )? {
-        splits[tunable_split].chunks.push(pool.len());
-        pool.push(f, dae_fn_type, "functionUpdateTunableParameters$attrs".to_string());
-    }
+        dae_fn_type,
+        &mut pool,
+    )?;
+    splits[tunable_split].chunks.extend(tunable_attrs);
     // C's `setupDataStruc` half: the constant defaults, written before the solver is
     // allocated. The expression-bound ones stay in the update function.
     let attr_defaults_idx = {
@@ -1913,11 +1933,11 @@ pub(super) fn build_sim_model(
         });
         idx
     };
-    // `layout.dae_mode()`, not this function's presence, is what tells a driver
-    // which form the model is in.
+    // `layout.compiled_dae_mode`, not this function's presence, is what tells a
+    // driver which form the model is in.
     let dae_residuals_idx = {
         let idx = import_base + bodies.len() as u32;
-        splits.push(build_split_fn(
+        let mut split = build_split_fn(
             "evaluateDAEResiduals",
             &dae_units(&dae_eqs),
             2,
@@ -1931,7 +1951,20 @@ pub(super) fn build_sim_model(
             &mut bodies,
             &mut pool,
             false,
-        )?);
+        )?;
+        if dae_mode.is_some() {
+            split.chunks.extend(build_stage_pre_store(
+                "evaluateDAEResiduals",
+                openmodelica_sim_meta::driver::eval_stage::ALGEBRAIC,
+                dae_fn_type,
+                &save_pre,
+                &var_map,
+                &by_name,
+                &mut literals,
+                &mut pool,
+            )?);
+        }
+        splits.push(split);
         idx
     };
     // C's `functionDAE`: `functionLocalKnownVars` + `allEquations` in the discrete

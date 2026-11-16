@@ -1997,31 +1997,18 @@ static void popTimerStack(void)
   }
 }
 
+/* RFC 3986: decodes %XX only. A '+' is a '+'. */
 static void decodeUri2(const char *src, char *dest, int breakCh)
 {
   char *tmp = dest;
-  while (*src) {
-    if (*src == '+') *(tmp++) = ' ';
-    else if (*src == '%' && src[1]) {
-      char buf[3];
-      int i;
-      buf[0] = src[1];
-      buf[1] = src[2];
-      buf[2] = '\0';
-      errno = 0;
-      i = strtol(buf,NULL,16);
-      if (errno) {
-        *(tmp++) = *src;
-        errno = 0;
-      } else {
-        *(tmp++) = i;
-        *tmp = 0;
-        src += 2;
-      }
-    } else if (*src == breakCh) {
-      break;
-    } else *(tmp++) = *src;
-    src++;
+  while (*src && *src != breakCh) {
+    if (*src == '%' && isxdigit((unsigned char) src[1]) && isxdigit((unsigned char) src[2])) {
+      char buf[3] = {src[1], src[2], '\0'};
+      *(tmp++) = (char) strtol(buf, NULL, 16);
+      src += 3;
+    } else {
+      *(tmp++) = *(src++);
+    }
   }
   *tmp = '\0';
 }
@@ -2050,18 +2037,47 @@ static int SystemImpl__uriToClassAndPath(const char *uri, const char **scheme, c
   *scheme = NULL;
   *name = NULL;
   *path = NULL;
-  if (0 == strncasecmp(uri, modelicaUri, strlen(modelicaUri))) {
+  if (0 == strncasecmp(uri, "modelica:", 9)) {
+    const char *rest = uri + 9;
+    int slashes = 0;
+    /* modelica:/A.B/x, modelica:///A.B/x and the deprecated modelica://A.B/x */
+    for (; *rest == '/' && slashes < 3; rest++) {
+      slashes++;
+    }
     *scheme = modelicaUri;
-    decodeUri(uri+strlen(modelicaUri),name,path);
-    if (!**name) {
+    decodeUri(rest,name,path);
+    if (!slashes || !**name) {
       msg[0] = uri;
       c_add_message(NULL,-1,ErrorType_scripting,ErrorLevel_error,gettext("Modelica URI lacks classname: %s"),msg,1);
       return 1;
     }
     return 0;
-  } else if (0 == strncasecmp(uri, fileUri, strlen(fileUri))) {
+  } else if (0 == strncasecmp(uri, "file:", 5)) {
+    /* RFC 8089: file:/p, file:///p and file://localhost/p name /p, and file://C:/p names C:/p */
+    const char *rest = uri + 5;
     *scheme = fileUri;
-    decodeUri(uri+strlen(fileUri),name,path);
+    if (rest[0] == '/' && rest[1] == '/') {
+      decodeUri(rest+2,name,path);
+      if (isalpha((unsigned char) (*name)[0]) && (*name)[1] == ':' && !(*name)[2]) {
+        char *drivePath = (char*) omc_alloc_interface.malloc_atomic(strlen(*name) + strlen(*path) + 1);
+        strcpy(drivePath, *name);
+        strcat(drivePath, *path);
+        *path = drivePath;
+        **name = '\0';
+      } else if (0 == strncasecmp(*name, "localhost", 10)) {
+        **name = '\0';
+      }
+    } else {
+      *name = (char*) omc_alloc_interface.malloc_atomic(1);
+      **name = '\0';
+      *path = (char*) omc_alloc_interface.malloc_atomic(strlen(rest) + 1);
+      decodeUri2(rest,*path,-1);
+    }
+#if defined(__MINGW32__) || defined(_MSC_VER)
+    if ((*path)[0] == '/' && isalpha((unsigned char) (*path)[1]) && (*path)[2] == ':') {
+      (*path)++;
+    }
+#endif
     if (!**path) {
       msg[0] = uri;
       c_add_message(NULL,-1,ErrorType_scripting,ErrorLevel_error,gettext("File URI has no path: %s"),msg,1);
@@ -2133,284 +2149,6 @@ int SystemImpl__dgesv(void *lA, void *lB, void **res)
   MMC_THROW();
 }
 #endif
-
-#define MODELICAPATH_LEVELS 6
-typedef struct {
-  const char *dir;
-  char *file;
-  long version[MODELICAPATH_LEVELS];
-  char *versionExtra;
-  int fileIsDir;
-} modelicaPathEntry;
-
-int splitVersion(const char *version, long *versionNum, char **versionExtra)
-{
-  const char *buf = version;
-  char *next;
-  long l;
-  int cont,i=0,len;
-  memset(versionNum,0,sizeof(long)*MODELICAPATH_LEVELS);
-  if (!isdigit(version[0])) {
-    *versionExtra = omc_alloc_interface.malloc_strdup(buf);
-    return 0;
-  }
-  do {
-    /* fprintf(stderr, "look versionNum %s\n", buf); */
-    l = strtol(buf,&next,10);
-    cont = buf != next && l >= 0;
-    if (cont) {
-      versionNum[i] = l;
-      /* fprintf(stderr, "versionNum %lx\n", *versionNum); */
-      if (*next == '.') next++;
-    }
-    buf = next;
-  } while (cont && ++i < MODELICAPATH_LEVELS);
-  if (*buf == ' ') buf++;
-
-  if (*buf == '+') {
-    *versionExtra = omc_alloc_interface.malloc_strdup("");
-  } else {
-    *versionExtra = omc_alloc_interface.malloc_strdup(buf);
-  }
-  len = strlen(*versionExtra);
-  /* fprintf(stderr, "have len %ld versionExtra %s\n", len, *versionExtra); */
-  if (len >= 2 && 0==strcmp("mo", *versionExtra+len-2)) {
-    (*versionExtra)[len-2] = '\0';
-  }
-  return 1;
-}
-
-static int regularFileExistsInDirectory(const char *dir1, const char *dir2, const char *file)
-{
-  char *str;
-  int res;
-  str = (char*) omc_alloc_interface.malloc_atomic(strlen(dir1) + strlen(dir2) + strlen(file) + 3);
-  sprintf(str,"%s/%s/%s", dir1, dir2, file);
-  res = SystemImpl__regularFileExists(str);
-  return res;
-}
-
-static modelicaPathEntry* getAllModelicaPaths(const char *name, size_t nlen, void *mps, int *numMatches)
-{
-  int i = 0;
-  modelicaPathEntry* res;
-  void *save_mps = mps;
-  *numMatches = 0;
-  while (MMC_NILHDR != MMC_GETHDR(mps)) {
-    const char *mp = MMC_STRINGDATA(MMC_CAR(mps));
-    DIR *dir = opendir(mp);
-    struct dirent *ent;
-    mps = MMC_CDR(mps);
-    if (!dir) continue;
-    while ((ent = readdir(dir))) {
-      if (0 == strncmp(name, ent->d_name, nlen) && (ent->d_name[nlen] == '\0' || ent->d_name[nlen] == ' ' || ent->d_name[nlen] == '.')) {
-        int entlen,mightbedir;
-#ifdef DT_DIR
-        mightbedir = (ent->d_type==DT_DIR || ent->d_type==DT_UNKNOWN || ent->d_type==DT_LNK);
-#else
-        mightbedir = 1;
-#endif
-        if (mightbedir && (regularFileExistsInDirectory(mp,ent->d_name,"package.mo") || regularFileExistsInDirectory(mp,ent->d_name,"package.moc"))) {
-          /* fprintf(stderr, "found match %d %s\n", *numMatches, ent->d_name); */
-          (*numMatches)++;
-          continue;
-        }
-        entlen = strlen(ent->d_name);
-        if (((entlen > 3 && 0==strcmp(ent->d_name+entlen-3,".mo")) || (entlen > 4 && 0==strcmp(ent->d_name+entlen-4,".moc"))) && regularFileExistsInDirectory(mp,"",ent->d_name)) {
-          /* fprintf(stderr, "found match %d %s\n", *numMatches, ent->d_name); */
-          (*numMatches)++;
-        }
-      }
-    }
-    closedir(dir);
-  }
-  /* fprintf(stderr, "numMatches: %ld\n", *numMatches); */
-  /*** NOTE: Doing the same thing again. It is very important the same (number of) entries are match as in the loop above ***/
-  res = (modelicaPathEntry*) omc_alloc_interface.malloc(*numMatches*sizeof(modelicaPathEntry));
-  mps = save_mps;
-  while (MMC_NILHDR != MMC_GETHDR(mps)) {
-    const char *mp = MMC_STRINGDATA(MMC_CAR(mps));
-    DIR *dir = opendir(mp);
-    struct dirent *ent;
-    mps = MMC_CDR(mps);
-    if (!dir) continue;
-    while ((ent = readdir(dir))) {
-      if (0 == strncmp(name, ent->d_name, nlen) && (ent->d_name[nlen] == '\0' || ent->d_name[nlen] == ' ' || ent->d_name[nlen] == '.')) {
-        int entlen,ok=0,maybeDir;
-#ifdef DT_DIR
-        maybeDir = (ent->d_type==DT_DIR || ent->d_type==DT_UNKNOWN || ent->d_type==DT_LNK);
-#else
-        maybeDir = 1;
-#endif
-        if (maybeDir && (regularFileExistsInDirectory(mp,ent->d_name,"package.mo") || regularFileExistsInDirectory(mp,ent->d_name,"package.moc"))) {
-          ok=1;
-          res[i].fileIsDir=1;
-          /* fprintf(stderr, "found dir match: %ld %s - ok=%d\n", i, ent->d_name, ok); */
-        }
-        entlen = strlen(ent->d_name);
-        if (!ok && ((entlen > 3 && 0==strcmp(ent->d_name+entlen-3,".mo")) || (entlen > 4 && 0==strcmp(ent->d_name+entlen-4,".moc"))) && regularFileExistsInDirectory(mp,"",ent->d_name)) {
-          /* fprintf(stderr, "found match file: %ld %s - ok=%d\n", i, ent->d_name, ok); */
-          res[i].fileIsDir=0;
-          ok=1;
-        }
-        if (!ok)
-          continue;
-        res[i].dir = mp;
-        res[i].file = omc_alloc_interface.malloc_strdup(ent->d_name);
-        if (res[i].file[nlen] == ' ') {
-          splitVersion(res[i].file+nlen+1, res[i].version, &res[i].versionExtra);
-        } else {
-          memset(res[i].version,0,sizeof(long)*MODELICAPATH_LEVELS);
-          res[i].versionExtra = "";
-        }
-        assert(i<*numMatches);
-        i++;
-      }
-    }
-    closedir(dir);
-  }
-  return res;
-}
-
-static int modelicaPathEntryVersionEqual(long *ver1, long *ver2, int numToTest)
-{
-  int i;
-  for (i=0; i<numToTest; i++) {
-    if (ver1[i] != ver2[i]) return 0;
-  }
-  return 1;
-}
-
-static int modelicaPathEntryVersionGreater(long *ver1, long *ver2, int numToTest)
-{
-  int i;
-  for (i=0; i<numToTest; i++) {
-    if (ver1[i] > ver2[i]) return 1;
-    if (ver1[i] < ver2[i]) return 0;
-  }
-  return 1;
-}
-
-static int getLoadModelPathFromSingleTarget(const char *searchTarget, modelicaPathEntry *entries, int numEntries, int exactVersion, const char **outDir, char **outName, int *isDir)
-{
-  int i, j, foundIndex = -1, foundDigitVersion;
-  long version[MODELICAPATH_LEVELS] = {0}, foundVersion[MODELICAPATH_LEVELS] = {0};
-  char *versionExtra;
-  /* fprintf(stderr, "searchTarget %s\n", searchTarget); */
-  foundDigitVersion = splitVersion(searchTarget,version,&versionExtra);
-  /* fprintf(stderr, "expected %ld.%ld.%ld.%ld %s ; exact=%d\n", version[0], version[1], version[2], version[3], versionExtra, exactVersion); */
-  if (foundDigitVersion && !*versionExtra) {
-    /* Makes us load 3.2.1 if 3.2.0.0 is not available.
-     * Note that all 4 levels are present and 3.2 is equivalent to 3.2.0.0
-     * Search one additional level for each time we fail.
-     */
-    for (j=MODELICAPATH_LEVELS; j>=(exactVersion ? MODELICAPATH_LEVELS : 0); j--) {
-      for (i=0; i<numEntries; i++) {
-        /* fprintf(stderr, "entry %s/%s\n", entries[i].dir, entries[i].file);
-         fprintf(stderr, "expected %ld.%ld.%ld.%ld %s\n", entries[i].version[0], entries[i].version[1], entries[i].version[2], entries[i].version[3], entries[i].versionExtra); */
-
-        if (modelicaPathEntryVersionEqual(entries[i].version,version,j)
-            && (j==MODELICAPATH_LEVELS || modelicaPathEntryVersionGreater(entries[i].version,version,MODELICAPATH_LEVELS))
-            && (entries[i].versionExtra[0] == '\0' || entries[i].versionExtra[0] == '+' || entries[i].versionExtra[0] == '-')) {
-          if (modelicaPathEntryVersionGreater(entries[i].version,foundVersion,MODELICAPATH_LEVELS)) {
-            memcpy(foundVersion,entries[i].version,sizeof(long)*MODELICAPATH_LEVELS);
-            foundIndex = i;
-          }
-        }
-      }
-      if (foundIndex >= 0) {
-        *outDir = entries[foundIndex].dir;
-        *outName = entries[foundIndex].file;
-        *isDir = entries[foundIndex].fileIsDir;
-        return 0;
-      }
-    }
-  }
-  /* fprintf(stderr, "Look for version %lx versionExtra: %s\n", version, versionExtra); */
-  for (i=0; i<numEntries; i++) {
-    /* fprintf(stderr, "entry %s/%s\n", entries[i].dir, entries[i].file);
-    fprintf(stderr, "is %ld.%ld.%ld.%ld %s\n", entries[i].version[0], entries[i].version[1], entries[i].version[2], entries[i].version[3], entries[i].versionExtra); */
-    if (version[0]==0 && version[1]==0 && version[2]==0) {
-      const char *entryVersionExtra = entries[i].versionExtra;
-      if (entryVersionExtra[0] == '-' && versionExtra[0] != '-') {
-        entryVersionExtra = entryVersionExtra+1;
-      }
-      if (0==strncmp(entryVersionExtra,versionExtra,strlen(versionExtra))) {
-        *outDir = entries[i].dir;
-        *outName = entries[i].file;
-        *isDir = entries[i].fileIsDir;
-        return 0;
-      }
-    }
-    if (modelicaPathEntryVersionEqual(entries[i].version,version,MODELICAPATH_LEVELS) && 0==strncmp(entries[i].versionExtra,versionExtra,strlen(versionExtra))) {
-      *outDir = entries[i].dir;
-      *outName = entries[i].file;
-      *isDir = entries[i].fileIsDir;
-      return 0;
-    }
-  }
-  return 1;
-}
-
-static int getLoadModelPathFromDefaultTarget(const char *name, modelicaPathEntry *entries, int numEntries, const char **outDir, char **outName, int *isDir)
-{
-  const char *foundExtra = 0;
-  long foundVersion[MODELICAPATH_LEVELS] = {-1,-1,-1,0};
-  int i,foundIndex = -1;
-
-  /* Look for best release version */
-  for (i=0; i<numEntries; i++) {
-    if (modelicaPathEntryVersionGreater(entries[i].version,foundVersion,MODELICAPATH_LEVELS) && (entries[i].versionExtra[0] == '\0' || entries[i].versionExtra[0] == '+' || entries[i].versionExtra[0] == '-')) {
-      memcpy(foundVersion,entries[i].version,sizeof(long)*MODELICAPATH_LEVELS);
-      foundIndex = i;
-    }
-  }
-  /* Look for best pre-release/named version */
-  if (foundIndex == -1) {
-    for (i=0; i<numEntries; i++) {
-      if (modelicaPathEntryVersionGreater(entries[i].version,foundVersion,MODELICAPATH_LEVELS) || (entries[i].version == foundVersion && strcmp(entries[i].versionExtra,foundExtra) > 0)) {
-        memcpy(foundVersion,entries[i].version,sizeof(long)*MODELICAPATH_LEVELS);
-        foundExtra = entries[i].versionExtra;
-        foundIndex = i;
-      }
-    }
-  }
-  if (foundIndex >= 0) {
-    *outDir = entries[foundIndex].dir;
-    *outName = entries[foundIndex].file;
-    *isDir = entries[foundIndex].fileIsDir;
-    return 0;
-  }
-  return 1;
-}
-
-int System_getLoadModelPath(const char *name, void *prios, void *mps, int exactVersion, const char **outDir, char **outName, int *isDir)
-{
-  int numEntries,res=1;
-  size_t nameLen = strlen(name);
-  modelicaPathEntry *entries = getAllModelicaPaths(name, nameLen, mps, &numEntries);
-  *outName = NULL;
-  while (MMC_NILHDR != MMC_GETHDR(prios)) {
-    const char *prio = MMC_STRINGDATA(MMC_CAR(prios));
-    if (0==strcmp("default",prio)) {
-      if (!getLoadModelPathFromDefaultTarget(name,entries,numEntries,outDir,outName,isDir)) {
-        res = 0;
-        break;
-      }
-    } else {
-      if (!getLoadModelPathFromSingleTarget(prio,entries,numEntries,exactVersion,outDir,outName,isDir)) {
-        res = 0;
-        break;
-      }
-    }
-    prios = MMC_CDR(prios);
-  }
-  if (NULL == *outName) {
-    MMC_THROW();
-  }
-  /* fprintf(stderr, "result: %d %s %s %d", res, *outDir, *outName, *isDir); */
-  return res;
-}
 
 #define MAX_TMP_TICK 50
 

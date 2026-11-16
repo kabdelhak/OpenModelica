@@ -84,7 +84,9 @@ typedef enum {
   model_state_me_continuous_time_mode = 1<<8,  /* ME only */
   model_state_terminated              = 1<<9,  /* ME and CS */
   model_state_error                   = 1<<10, /* ME and CS */
-  model_state_fatal                   = 1<<11  /* ME and CS */
+  model_state_fatal                   = 1<<11, /* ME and CS */
+  model_state_configuration_mode      = 1<<12, /* ME and CS, FMI 3.0 Configuration Mode */
+  model_state_cs_event_mode           = 1<<13  /* CS only, FMI 3.0 Event Mode */
 } ModelState;
 
 /* Which FMI 3.0 interface kind an instance implements. */
@@ -127,6 +129,7 @@ typedef struct {
 
   int _need_update;
   int _held_assert_logged;
+  char _held_assert[2048];   /* the first held assert() not yet settled */
   int _event_found;
   int _terminate_simulation_requested;
   int _has_jacobian;
@@ -146,9 +149,18 @@ typedef struct {
   unsigned char* eqMask;
   int _tunable_dirty;
   int _tunable_applied;
+  int _event_mode_used;            /* CS: the importer uses Event Mode */
+  int _step_event;                 /* CS: the next step starts with an event update */
+
+  /* fmi-ls-dae */
+  fmi3Boolean daeMode;              /* the importer sets der(x) and the algebraic variables */
+  int daeSolved;                    /* ODE mode: der(x) and the algebraic variables solved at this point */
+  struct NONLINEAR_SYSTEM_DATA* daeNLS; /* ODE mode: F = 0 in der(x) and z, see initDAEModeExplicitNLS */
+  struct OpenModelicaGeneratedFunctionCallbacks* daeCallbacks;
 } ModelInstance;
 
 typedef struct {
+  ModelState mode;
   RINGBUFFER* simulationData;
   modelica_real* realParameter;
   modelica_integer* integerParameter;

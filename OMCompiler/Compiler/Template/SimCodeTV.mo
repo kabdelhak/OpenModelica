@@ -879,9 +879,17 @@ end SparsityRow;
     record UNITDEFINITION
       String name;
       BaseUnit baseUnit;
-      //TODO DisplayUnit
+      list<DisplayUnit> displayUnits "besides the other units of the same dimensions";
     end UNITDEFINITION;
   end UnitDefinition;
+
+  uniontype DisplayUnit
+    record DISPLAYUNIT "value_display = factor*value_unit + offset"
+      String name;
+      Real factor;
+      Real offset;
+    end DISPLAYUNIT;
+  end DisplayUnit;
 
   uniontype BaseUnit
     record BASEUNIT
@@ -892,6 +900,7 @@ end SparsityRow;
       Integer K   "exponent";
       Integer mol "exponent";
       Integer cd  "exponent";
+      Integer rad "exponent";
       Real factor "prefix";
       Real offset "offset";
     end BASEUNIT;
@@ -1043,6 +1052,7 @@ end SparsityRow;
       FmiDiscreteStates fmiDiscreteStates;
       FmiInitialUnknowns fmiInitialUnknowns;
       list<FmiArray> fmiArrays;
+      Boolean hasDependencies;
     end FMIMODELSTRUCTURE;
   end FmiModelStructure;
 
@@ -1338,6 +1348,11 @@ package SimCodeFunction
 end SimCodeFunction;
 
 package SimCodeCodegenUtil
+
+  function discreteChangeRanges
+    input SimCodeVar.SimVars vars;
+    output list<Integer> ranges;
+  end discreteChangeRanges;
 
   function linearSystemMatrixFormat
     input SimCode.LinearSystem ls;
@@ -1899,6 +1914,12 @@ package SimCodeCodegenUtil
     output Integer vr;
   end lookupVR;
 
+  function sortedValueReferences
+    input list<tuple<Integer, DAE.ComponentRef>> crefs;
+    input SimCode.SimCode simCode;
+    output list<tuple<Integer, Integer>> vrIndexes;
+  end sortedValueReferences;
+
   function isFMUSimCode
     input SimCode.SimCode simCode;
     output Boolean isFMU;
@@ -1910,6 +1931,12 @@ package SimCodeCodegenUtil
     input String fmuType;
     output Integer vr;
   end lookupVRForRealOutputDerivative;
+
+  function maxOutputDerivativeOrder
+    input SimCode.SimCode simCode;
+    input String fmuType;
+    output Integer order;
+  end maxOutputDerivativeOrder;
 
   function unbalancedEqSystemPartition
     input list<SimCode.SimEqSystem> inList;

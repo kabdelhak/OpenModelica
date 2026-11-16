@@ -18,10 +18,13 @@ project(OMModelicaExternalC)
 # the tool's side of the interface, and whoever dlopens the library resolves it
 # out of its own process. ELF is happy to leave the symbols undefined; Mach-O
 # has to be told to defer them. A Windows DLL cannot leave them undefined, so
-# there it links the runtime omc itself links, the one copy in the process.
+# there it links the runtime omc itself uses, the one copy in the process: the
+# MetaModelica one for the C omc, the counted one for the Rust omc.
 function(omc_defer_modelica_utilities tgt)
   if(APPLE)
     target_link_options(${tgt} PRIVATE -Wl,-undefined,dynamic_lookup)
+  elseif(WIN32 AND OM_OMC_ENABLE_RUST)
+    target_link_libraries(${tgt} PRIVATE omc::simrt::runtime::shared)
   elseif(WIN32)
     target_link_libraries(${tgt} PRIVATE omc::mmc::runtime)
   endif()
@@ -75,10 +78,11 @@ set(libModelicaMatIO_SOURCES C-Sources/ModelicaMatIO.c C-Sources/snprintf.c)
 add_library(ModelicaMatIO STATIC ${libModelicaMatIO_SOURCES})
 add_library(omc::simrt::Modelica::MatIO ALIAS ModelicaMatIO)
 
+# Without HDF5: FMUs link the static libraries. Simulation executables that
+# need MAT v7.3 link the shared ones in ffi/.
 target_compile_definitions(ModelicaMatIO PRIVATE HAVE_ZLIB)
 target_link_libraries(ModelicaMatIO PUBLIC omc::3rd::zlib)
 target_link_libraries(ModelicaMatIO PUBLIC omc::simrt::runtime)
-omc_modelica_matio_hdf5(ModelicaMatIO PRIVATE)
 
 # Shared version
 add_library(ModelicaMatIO_shared SHARED ${libModelicaMatIO_SOURCES})

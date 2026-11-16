@@ -171,6 +171,7 @@ public
     input EqData eqData;
     input VarData varData; // bindings
     input UnorderedMap<ComponentRef, Expression> replacements "rules for replacements are stored inside here";
+    output list<Pointer<Equation>> changed = {} "the changed equations";
   protected
     ComponentRef aliasCref;
     Expression replacement;
@@ -179,7 +180,7 @@ public
   algorithm
     // do nothing if replacements are empty
     if UnorderedMap.isEmpty(replacements) then return; end if;
-    EqData.mapExp(eqData, function applySimpleExp(replacements = replacements), SOME(function applySimpleCref(replacements = replacements)));
+    (_, changed) := EqData.mapExp(eqData, function applySimpleExp(replacements = replacements), SOME(function applySimpleCref(replacements = replacements)));
 
     // apply on bindings (is this necessary?)
     () := match varData
@@ -303,9 +304,15 @@ public
         aliasStr := aliasStr + "\t" + ComponentRef.toString(key) + "\t ==> \t" + Expression.toString(value) + "\n";
       end if;
     end for;
-    str := str + StringUtil.headline_4("[dumprepl] Constant Replacements:") + constStr;
-    str := str + StringUtil.headline_4("[dumprepl] Trivial Alias Replacements:") + aliasStr;
-    str := str + StringUtil.headline_4("[dumprepl] Nontrivial Alias Replacements:") + nonTrivialStr;
+    if constStr <> "" then
+      str := str + StringUtil.headline_4("[dumprepl] Constant Replacements:") + constStr;
+    end if;
+    if aliasStr <> "" then
+      str := str + StringUtil.headline_4("[dumprepl] Trivial Alias Replacements:") + aliasStr;
+    end if;
+    if nonTrivialStr <> "" then
+      str := str + StringUtil.headline_4("[dumprepl] Nontrivial Alias Replacements:") + nonTrivialStr;
+    end if;
   end simpleToString;
 
 // =========================================================================

@@ -42,6 +42,10 @@ set(OMEDIT_TEST_AUTOCOMPLETION_SOURCES AutoCompletion/AutoCompletionTest.cpp
                                         AutoCompletion/AutoCompletionTest.h)
 add_omedit_test(AutoCompletion "${OMEDIT_TEST_AUTOCOMPLETION_SOURCES}")
 
+set(OMEDIT_TEST_ARRAYPARAMETEREDITOR_SOURCES ArrayParameterEditor/ArrayParameterEditor.cpp
+                                             ArrayParameterEditor/ArrayParameterEditor.h)
+add_omedit_test(ArrayParameterEditor "${OMEDIT_TEST_ARRAYPARAMETEREDITOR_SOURCES}")
+
 set(OMEDIT_TEST_BROWSEMSL_SOURCES BrowseMSL/BrowseMSL.cpp
                                   BrowseMSL/BrowseMSL.h)
 add_omedit_test(BrowseMSL "${OMEDIT_TEST_BROWSEMSL_SOURCES}")
@@ -74,6 +78,10 @@ set(OMEDIT_TEST_EXPRESSION_SOURCES Expression/ExpressionTest.cpp
                                    Expression/ExpressionTest.h)
 add_omedit_test(Expression "${OMEDIT_TEST_EXPRESSION_SOURCES}")
 
+set(OMEDIT_TEST_FMIGUIDE_SOURCES FMIGuide/FMIGuideTest.cpp
+                                 FMIGuide/FMIGuideTest.h)
+add_omedit_test(FMIGuide "${OMEDIT_TEST_FMIGUIDE_SOURCES}")
+
 set(OMEDIT_TEST_HOMOTOPY_SOURCES Homotopy/HomotopyTest.cpp
                                  Homotopy/HomotopyTest.h)
 add_omedit_test(Homotopy "${OMEDIT_TEST_HOMOTOPY_SOURCES}")
@@ -104,6 +112,10 @@ if(MODELICA_LS_STAGE_EXE AND NOT CMAKE_CROSSCOMPILING)
 else()
   message(STATUS "LanguageServerNavigation not registered: no runnable staged language server")
 endif()
+
+set(OMEDIT_TEST_INSTALLLIBRARYFROMPATH_SOURCES InstallLibraryFromPath/InstallLibraryFromPathTest.cpp
+                                               InstallLibraryFromPath/InstallLibraryFromPathTest.h)
+add_omedit_test(InstallLibraryFromPath "${OMEDIT_TEST_INSTALLLIBRARYFROMPATH_SOURCES}")
 
 set(OMEDIT_TEST_MERGEEXTENDSMODIFIERS_SOURCES MergeExtendsModifiers/MergeExtendsModifiersTest.cpp
                                               MergeExtendsModifiers/MergeExtendsModifiersTest.h)

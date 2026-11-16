@@ -192,6 +192,11 @@ pub struct Layout<T = u32> {
     /// The model has a `SES_LINEAR` with a symbolic Jacobian, the only reader of
     /// `old_real_off`.
     pub has_old_real: bool,
+    /// C's `compiledInDAEMode` (`--daeMode`): the continuous equations are in
+    /// `evaluateDAEResiduals`, and `functionODE`/`functionAlgebraics`/`functionDAE`
+    /// do not evaluate them. Also set when every equation came out explicit and
+    /// there is no residual left for IDA ([`Layout::dae_mode`] false).
+    pub compiled_dae_mode: bool,
     /// `SimData` offset of the homotopy parameter lambda (f64).
     pub lambda_off: T,
     pub rparam_off: T,
@@ -275,14 +280,13 @@ pub struct Layout<T = u32> {
     /// `functionInitStartValues` fills it; `-iif`/`-override` may replace entries;
     /// the driver then copies it over the live region (C's `setAllVarsToStart`).
     pub start_off: T,
-    /// C's `realVarsData[i].attribute.nominal` as declared, one f64 per real
-    /// variable in [`Layout::start_off`] order. [`Layout::state_nom_off`] is the
-    /// integrator's clamped copy.
+    /// C's `realVarsData[i].attribute.positiveNominal`, one f64 per real variable
+    /// in [`Layout::start_off`] order. [`Layout::state_nom_off`] is the
+    /// integrator's copy.
     pub real_nom_off: T,
     /// Base of the per-state `nominal` attribute (one f64 per state), written by
     /// `functionUpdateBoundVariableAttributes` once the parameters are computed.
-    /// `fmax(|nominal|, 1e-32)` rather than the attribute itself: it is the
-    /// integrator's `atol` scale and the Jacobian's FD step floor.
+    /// It is the integrator's `atol` scale and the Jacobian's FD step floor.
     pub state_nom_off: T,
     /// Base of the per-state `max` attribute, written the same way; C's
     /// `functionJacAC_num` flips its difference quotient at the bound.
@@ -398,6 +402,7 @@ impl Layout {
         has_init_lambda0: bool,
         has_history_ops: bool,
         has_old_real: bool,
+        compiled_dae_mode: bool,
     ) -> Self {
         let counts = LayoutCounts {
             n_states,
@@ -434,6 +439,7 @@ impl Layout {
             has_init_lambda0,
             has_history_ops,
             has_old_real,
+            compiled_dae_mode,
             resizable: false,
         };
         Layout::build(counts, flags)
@@ -514,6 +520,7 @@ pub struct LayoutFlags {
     pub has_init_lambda0: bool,
     pub has_history_ops: bool,
     pub has_old_real: bool,
+    pub compiled_dae_mode: bool,
     /// The size-table pointer in the header ([`REAL_OFF_RESIZABLE`]), and the
     /// regions of constant size first.
     pub resizable: bool,
@@ -547,6 +554,7 @@ impl<T: sizes::LayoutNum> Layout<T> {
             has_init_lambda0: f.has_init_lambda0,
             has_history_ops: f.has_history_ops,
             has_old_real: f.has_old_real,
+            compiled_dae_mode: f.compiled_dae_mode,
             ..Layout::zero()
         };
         let start = T::lit(if f.resizable { REAL_OFF_RESIZABLE } else { REAL_OFF });
@@ -586,6 +594,7 @@ impl<T: sizes::LayoutNum> Layout<T> {
             has_init_lambda0: false,
             has_history_ops: false,
             has_old_real: false,
+            compiled_dae_mode: false,
             lambda_off: z.clone(),
             rparam_off: z.clone(),
             int_off: z.clone(),
@@ -770,6 +779,7 @@ impl<T> Layout<T> {
             has_init_lambda0: self.has_init_lambda0,
             has_history_ops: self.has_history_ops,
             has_old_real: self.has_old_real,
+            compiled_dae_mode: self.compiled_dae_mode,
             lambda_off: off(&self.lambda_off)?,
             rparam_off: off(&self.rparam_off)?,
             int_off: off(&self.int_off)?,
@@ -866,8 +876,10 @@ impl<T: sizes::LayoutOff> Layout<T> {
         self.real_nom_off + T::from(i * 8)
     }
 
-    /// C's `compiledInDAEMode`: the integrator solves `F(t, y, y') = 0` over states
-    /// *and* algebraic unknowns through `evaluateDAEResiduals`, not `functionODE`.
+    /// `--daeMode` with a residual system: the integrator solves `F(t, y, y') = 0`
+    /// over states *and* algebraic unknowns through `evaluateDAEResiduals`, not
+    /// `functionODE`. Which entry points hold the equations is
+    /// [`Layout::compiled_dae_mode`].
     pub fn dae_mode(&self) -> bool {
         self.n_dae_res > T::from(0)
     }
@@ -1193,9 +1205,12 @@ pub struct SotiVars {
     pub bools: Vec<(String, i32)>,
     /// String variables with their `start` attribute.
     pub strings: Vec<(String, String)>,
-    /// C's `nDiscreteRealArray`: how many of [`SotiVars::reals`] at the tail are
-    /// discrete. `checkForDiscreteChanges` walks exactly those.
-    pub n_discrete_real: u32,
+    /// Which entries of `reals`, `ints` and `bools` C's `checkForDiscreteChanges`
+    /// compares: the discrete variables without the common subexpression
+    /// temporaries, as `SimCodeCodegenUtil.discreteChangeRanges` has them.
+    pub checked_reals: Vec<bool>,
+    pub checked_ints: Vec<bool>,
+    pub checked_bools: Vec<bool>,
 }
 
 /// C's `modelData` parameter arrays (name, `start`, `fixed`) in the order of the
@@ -1234,6 +1249,35 @@ pub struct AttrLog {
 
 /// [`AttrLog::kind`], in the group order C prints.
 pub const ATTR_NAME: [&str; 4] = ["min", "max", "nominal", "start"];
+
+fn nominal_is_usable(nominal: f64) -> bool {
+    nominal.is_normal()
+}
+
+/// C's `normalizeNominal`: the magnitude the solvers scale by, 1.0 for 0, a
+/// subnormal value, inf and NaN.
+pub fn positive_nominal(nominal: f64) -> f64 {
+    if nominal_is_usable(nominal) {
+        fmath::fabs(nominal)
+    } else {
+        1.0
+    }
+}
+
+/// C's `normalizeNominal` warning for a nominal that [`positive_nominal`] replaces.
+pub fn nominal_warning(name: &str, nominal: f64) -> Option<String> {
+    (!nominal_is_usable(nominal)).then(|| {
+        format!(
+            "The nominal value of {name} is {}, but it must be nonzero and finite. The solvers use 1.0 instead.",
+            openmodelica_solvers::format_g(nominal, 6)
+        )
+    })
+}
+
+/// C's `nominalSign`: -1.0 for a negative nominal, otherwise 1.0.
+pub fn nominal_sign(nominal: f64) -> f64 {
+    if nominal < 0.0 { -1.0 } else { 1.0 }
+}
 
 /// [`MetaVar::filter`] bits: what keeps a variable out of the result file, and
 /// which flag lets it back in (C's `shouldFilterOutput` +
@@ -1609,7 +1653,8 @@ pub struct SimMeta {
     /// Integration method (`"dassl"`, `"euler"`, …; empty = the dassl default).
     pub method: String,
     /// What a Co-Simulation `do-step` integrates with (C's
-    /// `FMI2CS_initializeSolverData`: `-s` from `_flags.json`, else euler).
+    /// `FMI2CS_initializeSolverData`: `-s` from `_flags.json`, else cvode if
+    /// available, else euler).
     /// Empty except for a CS export.
     pub cs_method: String,
     /// The nonlinear/linear solver selection an FMU export hard-codes, as a simflags
@@ -1670,9 +1715,10 @@ pub struct SimMeta {
     /// Modelica source of each residual `functionRemovedInitialEquations` checks;
     /// C bakes the same text into the generated `errorStreamPrint`.
     pub removed_init_desc: Vec<String>,
-    /// C's `initializeNonlinearSystems` startup warnings, decided at compile time:
-    /// so far only a sparsity pattern `sparsitySanityCheck` rejects.
-    pub nls_warnings: Vec<String>,
+    /// Startup warnings decided at compile time: C's `normalizeNominal` for a
+    /// literal nominal of 0, inf or NaN, then `initializeNonlinearSystems` for a
+    /// sparsity pattern `sparsitySanityCheck` rejects.
+    pub startup_warnings: Vec<String>,
     /// C's `simulationInfo->sensitivityParList`: the `SimData` offsets of the
     /// parameters `--calculateSensitivities` selected, in block order.
     pub sens_params: Vec<u32>,
@@ -2044,6 +2090,10 @@ impl SimMeta {
         self.soti.reals = expand_entries(core::mem::take(&mut self.soti.reals), &arrays, |a, n, out| {
             out.extend(a.names(n))
         });
+        self.soti.checked_reals =
+            expand_entries(core::mem::take(&mut self.soti.checked_reals), &arrays, |a, &c, out| {
+                out.extend(core::iter::repeat_n(c, a.dims.iter().product::<u32>() as usize))
+            });
     }
 
     pub fn apply_flags(&mut self, f: &crate::simflags::SimFlags) {
@@ -2147,7 +2197,7 @@ impl SimMeta {
 // the crate dependency-free and trivially buildable for every target.
 
 const MAGIC: &[u8; 4] = b"OMSM";
-const VERSION: u32 = 28;
+const VERSION: u32 = 30;
 
 fn put_u32(o: &mut Vec<u8>, v: u32) {
     o.extend_from_slice(&v.to_le_bytes());
@@ -2255,6 +2305,7 @@ fn put_layout(o: &mut Vec<u8>, l: &Layout) {
     o.push(l.has_init_lambda0 as u8);
     o.push(l.has_history_ops as u8);
     o.push(l.has_old_real as u8);
+    o.push(l.compiled_dae_mode as u8);
 }
 fn put_jac(o: &mut Vec<u8>, j: &Option<JacAInfo>) {
     match j {
@@ -2422,8 +2473,8 @@ pub fn encode(m: &SimMeta) -> Vec<u8> {
     for d in &m.removed_init_desc {
         put_str(&mut o, d);
     }
-    put_u32(&mut o, m.nls_warnings.len() as u32);
-    for d in &m.nls_warnings {
+    put_u32(&mut o, m.startup_warnings.len() as u32);
+    for d in &m.startup_warnings {
         put_str(&mut o, d);
     }
     put_u32(&mut o, m.sample_index.len() as u32);
@@ -2453,7 +2504,10 @@ pub fn encode(m: &SimMeta) -> Vec<u8> {
         put_str(&mut o, n);
         put_str(&mut o, v);
     }
-    put_u32(&mut o, m.soti.n_discrete_real);
+    for flags in [&m.soti.checked_reals, &m.soti.checked_ints, &m.soti.checked_bools] {
+        put_u32(&mut o, flags.len() as u32);
+        o.extend(flags.iter().map(|&c| c as u8));
+    }
     put_u32s(&mut o, &m.sens_params);
     put_u32(&mut o, m.nls_vars.len() as u32);
     for v in &m.nls_vars {
@@ -2830,6 +2884,7 @@ impl<'a> Reader<'a> {
             has_init_lambda0: false,
             has_history_ops: false,
             has_old_real: false,
+            compiled_dae_mode: false,
             extra_cols: 0,
         };
         l.has_when = self.u8()? != 0;
@@ -2838,6 +2893,7 @@ impl<'a> Reader<'a> {
         l.has_init_lambda0 = self.u8()? != 0;
         l.has_history_ops = self.u8()? != 0;
         l.has_old_real = self.u8()? != 0;
+        l.compiled_dae_mode = self.u8()? != 0;
         Ok(l)
     }
     fn enumeration(&mut self) -> Result<Option<Enumeration>, &'static str> {
@@ -2994,9 +3050,9 @@ pub fn decode(bytes: &[u8]) -> Result<SimMeta, &'static str> {
         removed_init_desc.push(r.string()?);
     }
     let nwarn = r.u32()? as usize;
-    let mut nls_warnings = Vec::with_capacity(nwarn);
+    let mut startup_warnings = Vec::with_capacity(nwarn);
     for _ in 0..nwarn {
-        nls_warnings.push(r.string()?);
+        startup_warnings.push(r.string()?);
     }
     let sample_index = r.u32s()?.into_iter().map(|v| v as i32).collect();
     let mut soti = SotiVars::default();
@@ -3020,7 +3076,11 @@ pub fn decode(bytes: &[u8]) -> Result<SimMeta, &'static str> {
     for _ in 0..r.u32()? {
         soti.strings.push((r.string()?, r.string()?));
     }
-    soti.n_discrete_real = r.u32()?;
+    for flags in [&mut soti.checked_reals, &mut soti.checked_ints, &mut soti.checked_bools] {
+        for _ in 0..r.u32()? {
+            flags.push(r.u8()? != 0);
+        }
+    }
     let sens_params = r.u32s()?;
     let nsys = r.u32()? as usize;
     let mut nls_vars = Vec::with_capacity(nsys);
@@ -3227,7 +3287,7 @@ pub fn decode(bytes: &[u8]) -> Result<SimMeta, &'static str> {
                     });
                 }
             }
-            let mut jac = |r: &mut Reader| -> core::result::Result<Option<ReconJac>, &'static str> {
+            let jac = |r: &mut Reader| -> core::result::Result<Option<ReconJac>, &'static str> {
                 Ok(match r.u8()? {
                     0 => None,
                     _ => Some(ReconJac {
@@ -3252,7 +3312,7 @@ pub fn decode(bytes: &[u8]) -> Result<SimMeta, &'static str> {
             })
         }
     };
-    let mut info = |r: &mut Reader| -> core::result::Result<SrcInfo, &'static str> {
+    let info = |r: &mut Reader| -> core::result::Result<SrcInfo, &'static str> {
         Ok(SrcInfo {
             file: r.string()?,
             line_start: r.u32()? as i32,
@@ -3371,7 +3431,7 @@ pub fn decode(bytes: &[u8]) -> Result<SimMeta, &'static str> {
         params,
         attr_log,
         removed_init_desc,
-        nls_warnings,
+        startup_warnings,
         sample_index,
         soti,
         sens_params,
@@ -3430,6 +3490,7 @@ mod tests {
                 true,
                 true,
                 HomotopyMethod::LocalAdaptive,
+                true,
                 true,
                 true,
                 true,
@@ -3619,7 +3680,7 @@ mod tests {
                 },
             ],
             removed_init_desc: vec!["4.0 - z".to_string()],
-            nls_warnings: Vec::new(),
+            startup_warnings: Vec::new(),
             sample_index: vec![1],
             soti: SotiVars::default(),
             sens_params: vec![88],

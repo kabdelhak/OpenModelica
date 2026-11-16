@@ -19,6 +19,8 @@ use alloc::vec::Vec;
 /// `-s`
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Solver {
+    /// Chosen from the model: IDA in DAE mode, otherwise DASSL.
+    Auto,
     Dassl,
     Ida,
     Cvode,
@@ -1601,6 +1603,7 @@ impl Offer {
 
 /// `-s`.
 const SOLVERS: &[Value<Solver>] = &[
+    ("auto", Solver::Auto, Offer::Always),
     ("dassl", Solver::Dassl, Offer::Always),
     ("dasslrt", Solver::Dassl, Offer::Never),
     ("euler", Solver::Euler, Offer::Always),
@@ -1725,6 +1728,9 @@ mod store {
         pub fn with<R>(g: impl FnOnce(&SimFlags) -> R) -> R {
             FLAGS.with(|c| g(&c.borrow()))
         }
+        pub fn swap(f: &mut SimFlags) {
+            FLAGS.with_borrow_mut(|c| core::mem::swap(c, f));
+        }
     }
 
     #[cfg(not(feature = "std"))]
@@ -1750,7 +1756,15 @@ mod store {
         }
     }
 
+    #[cfg(feature = "std")]
+    pub use imp::swap;
     pub use imp::{get, set, with};
+}
+
+/// Exchange with the calling thread's flags.
+#[cfg(feature = "std")]
+pub fn swap_flags(f: &mut SimFlags) {
+    store::swap(f);
 }
 
 pub fn set_flags(f: SimFlags) {

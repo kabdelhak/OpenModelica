@@ -2391,15 +2391,14 @@ algorithm
     then ();
   case(, _,_)
     algorithm
-      libPaths := {uri,
-                   uri + "/" + System.modelicaPlatform(),
-                   uri + "/" + System.openModelicaPlatform(),
+      libPaths := listAppend(uri :: uri + "/" + System.modelicaPlatform() :: msvcLibraryDirectoryPaths(uri + "/" + System.modelicaPlatform()),
+                  {uri + "/" + System.openModelicaPlatform(),
                    uri + "/" + System.openModelicaPlatformAlternative(),
                    (Settings.getHomeDir(false) + "/.openmodelica/binaries/" + AbsynUtil.pathFirstIdent(path)),
                    // Where an MSL-shaped build project forces its CMAKE_INSTALL_LIBDIR.
                    (userCompiledBinariesDirectory(path) + "/Library/" + System.modelicaPlatform()),
                    (installationDir + "/lib/"),
-                   (installationDir + "/lib/" + Autoconf.triple + "/omc")};
+                   (installationDir + "/lib/" + Autoconf.triple + "/omc")});
 
       // A build project run for a wasm target installs beside, not over, the host build.
       if isWasmSimCodeTarget() then
@@ -2410,6 +2409,12 @@ algorithm
 
       if Autoconf.os == "Windows_NT" then
         libPaths := List.appendElt(installationDir + "/bin/", libPaths);
+      end if;
+
+      // The static ModelicaExternalC libraries are for FMUs and have no HDF5.
+      // For MAT v7.3, an executable links the shared ones in ffi/, ahead of them.
+      if Autoconf.hdf5Libs <> "" and not isWasmSimCodeTarget() then
+        libPaths := List.appendElt(installationDir + "/lib/" + Autoconf.triple + "/omc/ffi", libPaths);
       end if;
 
     then ();
@@ -2475,6 +2480,17 @@ protected function getGerneralTarget
 algorithm
   generalTarget := if (System.stringFind(target, "msvc") == 0) then "msvc" else target;
 end getGerneralTarget;
+
+protected function msvcLibraryDirectoryPaths
+  "The existing compiler directories of platformDir for an MSVC target, least
+   preferred first."
+  input String platformDir;
+  output list<String> dirs = {};
+algorithm
+  if getGerneralTarget(Flags.getConfigString(Flags.TARGET)) == "msvc" then
+    dirs := list(platformDir + "/" + d for d guard System.directoryExists(platformDir + "/" + d) in listReverse(Util.msvcLibraryDirectories()));
+  end if;
+end msvcLibraryDirectoryPaths;
 
 
 protected function userCompiledBinariesDirectory
@@ -2583,6 +2599,9 @@ algorithm
         // please, take care about ordering these libraries, the most specific should go first (in reverse here)
         libs := generateExtFunctionLibraryDirectoryPaths2(true, str, isLinux, {} );
         libs := generateExtFunctionLibraryDirectoryPaths2(not stringEq(platform3,""), str + "/" + platform3, isLinux, libs);
+        for dir in msvcLibraryDirectoryPaths(str + "/" + platform3) loop
+          libs := generateExtFunctionLibraryDirectoryPaths2(true, dir, isLinux, libs);
+        end for;
         libs := generateExtFunctionLibraryDirectoryPaths2(not stringEq(platform2,""), str + "/" + platform2, isLinux, libs);
         libs := generateExtFunctionLibraryDirectoryPaths2(not stringEq(platform1,""), str + "/" + platform1, isLinux, libs);
         libs := generateExtFunctionLibraryDirectoryPaths2(isWasmSimCodeTarget(), str + "/wasm32-wasip1", isLinux, libs);
@@ -2598,6 +2617,9 @@ algorithm
         // please, take care about ordering these libraries, the most specific should go first (in reverse here)
         libs := generateExtFunctionLibraryDirectoryPaths2(true, str, isLinux, {} );
         libs := generateExtFunctionLibraryDirectoryPaths2(not stringEq(platform3,""), str + "/" + platform3, isLinux, libs);
+        for dir in msvcLibraryDirectoryPaths(str + "/" + platform3) loop
+          libs := generateExtFunctionLibraryDirectoryPaths2(true, dir, isLinux, libs);
+        end for;
         libs := generateExtFunctionLibraryDirectoryPaths2(not stringEq(platform2,""), str + "/" + platform2, isLinux, libs);
         libs := generateExtFunctionLibraryDirectoryPaths2(not stringEq(platform1,""), str + "/" + platform1, isLinux, libs);
         libs := generateExtFunctionLibraryDirectoryPaths2(isWasmSimCodeTarget(), str + "/wasm32-wasip1", isLinux, libs);
@@ -2729,9 +2751,8 @@ algorithm
         Error.addCompilerNotification("X11 library is not needed under Windows. It is not linked from the external library resource directory.\n");
       then  ({},{});
 
-    // The installed archive carries the MAT v7.3 paths, so a link line naming
-    // it needs HDF5 too, ahead of the zlib that follows in the expansion below:
-    // HDF5's deflate filter calls compress2.
+    // With HDF5, this is the shared library in ffi/ (see getLinkerLibraryPaths).
+    // HDF5 is named too, so that ld finds the library it needs.
     case Absyn.STRING("ModelicaMatIO") guard Autoconf.hdf5Libs <> ""
       then ({"-lModelicaMatIO", Autoconf.hdf5Libs},{});
 

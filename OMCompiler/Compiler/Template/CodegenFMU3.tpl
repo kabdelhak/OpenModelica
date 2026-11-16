@@ -71,7 +71,7 @@ case SIMCODE(__) then
   <fmiModelDescription
     <%fmiModelDescriptionAttributes(simCode,guid)%>>
     <%if isFMIMEType(FMUType) then ModelExchange3(simCode, sourceFiles)%>
-    <%if isFMICSType(FMUType) then CoSimulation3(simCode, sourceFiles)%>
+    <%if isFMICSType(FMUType) then CoSimulation3(simCode, FMUType, sourceFiles)%>
     <%if isFMISEType(FMUType) then ScheduledExecution3(simCode, sourceFiles)%>
     <%UnitDefinitions(simCode)%>
     <%TypeDefinitions3(simCode)%>
@@ -400,7 +400,7 @@ case SIMCODE(__) then
   >>
 end ModelExchange3;
 
-template CoSimulation3(SimCode simCode, list<String> sourceFiles)
+template CoSimulation3(SimCode simCode, String FMUType, list<String> sourceFiles)
  "Generates the CoSimulation element for FMI 3.0."
 ::=
 match simCode
@@ -412,7 +412,7 @@ case SIMCODE(__) then
     needsExecutionTool="false"
     canHandleVariableCommunicationStepSize="true"
     canBeInstantiatedOnlyOncePerProcess="false"
-    maxOutputDerivativeOrder="1"
+    maxOutputDerivativeOrder="<%maxOutputDerivativeOrder(simCode, FMUType)%>"
     providesIntermediateUpdate="false"
     mightReturnEarlyFromDoStep="true"
     canReturnEarlyAfterIntermediateUpdate="false"
@@ -649,7 +649,7 @@ case SIMVAR(name = name, exportVar = exportVar, type_ = T_ARRAY(ty = arrayElemen
   else
   match arrayElementType
     case T_REAL(__) then
-      '<Float64 <%VariableCommonAttributes3(simVar, simCode)%><%DerivativeAttribute3(simVar, simCode, numScalarStates)%><%ArrayStartString3(simVar)%><%MinString2(simVar)%><%MaxString2(simVar)%><%NominalString2(simVar)%><%UnitString3(simVar, simCode)%><%relativeQuantity(simVar)%>><%Dimensions3(simVar)%></Float64>'
+      '<Float64 <%VariableCommonAttributes3(simVar, simCode)%><%DerivativeAttribute3(simVar, simCode, numScalarStates)%><%ArrayStartString3(simVar)%><%MinString2(simVar)%><%MaxString2(simVar)%><%NominalString2(simVar)%><%UnitString2(simVar, simCode)%><%relativeQuantity(simVar)%>><%Dimensions3(simVar)%></Float64>'
     case T_INTEGER(__) then
       '<Int32 <%VariableCommonAttributes3(simVar, simCode)%><%ArrayStartString3(simVar)%><%MinString2(simVar)%><%MaxString2(simVar)%>><%Dimensions3(simVar)%></Int32>'
     case T_BOOL(__) then
@@ -673,7 +673,7 @@ case SIMVAR(__) then
   else
   match type_
     case T_REAL(__) then
-      '<Float64 <%VariableCommonAttributes3(simVar, simCode)%><%DerivativeAttribute3(simVar, simCode, numScalarStates)%><%StartString2(simVar)%><%MinString2(simVar)%><%MaxString2(simVar)%><%NominalString2(simVar)%><%UnitString3(simVar, simCode)%><%relativeQuantity(simVar)%><%CloseWithAliases3("Float64", simVar, simCode)%>'
+      '<Float64 <%VariableCommonAttributes3(simVar, simCode)%><%DerivativeAttribute3(simVar, simCode, numScalarStates)%><%StartString2(simVar)%><%MinString2(simVar)%><%MaxString2(simVar)%><%NominalString2(simVar)%><%UnitString2(simVar, simCode)%><%relativeQuantity(simVar)%><%CloseWithAliases3("Float64", simVar, simCode)%>'
     case T_INTEGER(__) then
       '<Int32 <%VariableCommonAttributes3(simVar, simCode)%><%StartString2(simVar)%><%MinString2(simVar)%><%MaxString2(simVar)%><%CloseWithAliases3("Int32", simVar, simCode)%>'
     case T_BOOL(__) then

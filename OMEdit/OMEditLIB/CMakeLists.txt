@@ -105,6 +105,10 @@ set(OMEDITLIB_SOURCES LSP/LSPClient.cpp
                       Simulation/SimulationOutputHandler.cpp
                       Simulation/OpcUaClient.cpp
                       Simulation/ArchivedSimulationsWidget.cpp
+                      FMI/FMIGuide.cpp
+                      FMI/FMIGuideDialog.cpp
+                      FMI/FMIGuideTexts.cpp
+                      FMI/FMUExportDialog.cpp
                       FMI/ImportFMUDialog.cpp
                       FMI/ImportFMUModelDescriptionDialog.cpp
                       FMI/FMUExportOutputWidget.cpp
@@ -268,6 +272,9 @@ set(OMEDITLIB_HEADERS LSP/LSPClient.h
                       Simulation/SimulationOutputHandler.h
                       Simulation/OpcUaClient.h
                       Simulation/ArchivedSimulationsWidget.h
+                      FMI/FMIGuide.h
+                      FMI/FMIGuideDialog.h
+                      FMI/FMUExportDialog.h
                       FMI/ImportFMUDialog.h
                       FMI/ImportFMUModelDescriptionDialog.h
                       FMI/FMUExportOutputWidget.h
@@ -642,7 +649,7 @@ elseif(OM_OMEDIT_BUNDLE_LANGUAGE_SERVER)
 
     # Keyed by version so bumping MODELICA_LS_VERSION re-downloads rather than
     # reusing stale files.
-    set(_ls_cache "${CMAKE_BINARY_DIR}/downloads/modelica-language-server/${MODELICA_LS_VERSION}")
+    set(_ls_cache "${OM_DOWNLOADS_DIR}/modelica-language-server/${MODELICA_LS_VERSION}")
     set(_ls_have_all TRUE)
     foreach(_ls_entry ${_ls_assets})
       string(REPLACE "|" ";" _ls_parts "${_ls_entry}")
@@ -654,30 +661,11 @@ elseif(OM_OMEDIT_BUNDLE_LANGUAGE_SERVER)
       if(_ls_nparts GREATER 1)
         list(GET _ls_parts 1 _ls_hash)
       endif()
-      set(_ls_file "${_ls_cache}/${_ls_name}")
-      if(EXISTS "${_ls_file}" AND _ls_hash)
-        file(SHA256 "${_ls_file}" _ls_existing_hash)
-        if(NOT _ls_existing_hash STREQUAL _ls_hash)
-          message(WARNING "Cached Modelica language server file ${_ls_name} is incomplete or corrupt; downloading it again")
-          file(REMOVE "${_ls_file}")
-        endif()
-      endif()
-      if(NOT EXISTS "${_ls_file}")
-        set(_ls_url "https://github.com/OpenModelica/modelica-language-server/releases/download/v${MODELICA_LS_VERSION}/${_ls_name}")
-        if(_ls_hash)
-          message(STATUS "Modelica language server: downloading ${_ls_name} (v${MODELICA_LS_VERSION})…")
-          file(DOWNLOAD "${_ls_url}" "${_ls_file}" EXPECTED_HASH SHA256=${_ls_hash}
-               TLS_VERIFY ON TIMEOUT 300 SHOW_PROGRESS STATUS _ls_dl)
-        else()
-          message(STATUS "Modelica language server: downloading ${_ls_name} (v${MODELICA_LS_VERSION}, unverified)…")
-          file(DOWNLOAD "${_ls_url}" "${_ls_file}" TLS_VERIFY ON TIMEOUT 300 SHOW_PROGRESS STATUS _ls_dl)
-        endif()
-        list(GET _ls_dl 0 _ls_dl_code)
-        if(NOT _ls_dl_code EQUAL 0)
-          file(REMOVE "${_ls_file}")
-          set(_ls_have_all FALSE)
-          message(WARNING "Failed to download ${_ls_name} (${_ls_dl})")
-        endif()
+      omc_download("https://github.com/OpenModelica/modelica-language-server/releases/download/v${MODELICA_LS_VERSION}/${_ls_name}"
+                   "${_ls_cache}/${_ls_name}" "${_ls_hash}" _ls_dl TIMEOUT 300 SHOW_PROGRESS)
+      if(_ls_dl)
+        set(_ls_have_all FALSE)
+        message(WARNING "Failed to download ${_ls_name} (${_ls_dl})")
       endif()
     endforeach()
 

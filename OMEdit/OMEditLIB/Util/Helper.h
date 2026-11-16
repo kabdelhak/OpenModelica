@@ -180,6 +180,7 @@ public:
   static QString properties;
   static QString add;
   static QString edit;
+  static QString editArray;
   static QString save;
   static QString saveTip;
   static QString saveAs;
@@ -213,9 +214,11 @@ public:
   static QString FMU;
   static QString exportt;
   static QString exportFMUTip;
+  static QString FMUWithSetup;
+  static QString exportFMUWithSetupTip;
   static QString sensitivityOptimization;
   static QString exportReadonlyPackage;
-  static QString exportRealonlyPackageTip;
+  static QString exportReadonlyPackageTip;
   static QString exportEncryptedPackage;
   static QString exportEncryptedPackageTip;
   static QString importFMU;
@@ -431,8 +434,6 @@ public:
   static QString italic;
   static QString underline;
   static QString condition;
-  static QString immediate;
-  static QString synchronize;
   static QString priority;
   static QString secs;
   static QString saveContentsInOneFile;

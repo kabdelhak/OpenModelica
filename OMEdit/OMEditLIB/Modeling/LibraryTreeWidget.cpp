@@ -43,6 +43,7 @@
 #include "ModelWidgetContainer.h"
 #include "FunctionArgumentDialog.h"
 #include "Options/OptionsDialog.h"
+#include "FMI/FMUExportDialog.h"
 #include "MessagesWidget.h"
 #include "DocumentationWidget.h"
 #include "Plotting/PlotWindowContainer.h"
@@ -2911,13 +2912,16 @@ void LibraryTreeView::createActions()
   mpExportFMUAction = new QAction(QIcon(":/Resources/icons/export-fmu.svg"), Helper::FMU, this);
   mpExportFMUAction->setStatusTip(Helper::exportFMUTip);
   connect(mpExportFMUAction, SIGNAL(triggered()), SLOT(exportModelFMU()));
+  mpExportFMUWithSetupAction = new QAction(QIcon(":/Resources/icons/export-fmu.svg"), Helper::FMUWithSetup, this);
+  mpExportFMUWithSetupAction->setStatusTip(Helper::exportFMUWithSetupTip);
+  connect(mpExportFMUWithSetupAction, &QAction::triggered, this, &LibraryTreeView::exportModelFMUWithSetup);
   // Export encrypted package Action
   mpExportEncryptedPackageAction = new QAction(Helper::exportEncryptedPackage, this);
   mpExportEncryptedPackageAction->setStatusTip(Helper::exportEncryptedPackageTip);
   connect(mpExportEncryptedPackageAction, SIGNAL(triggered()), SLOT(exportEncryptedPackage()));
   // Export read-only package action
   mpExportReadonlyPackageAction = new QAction(Helper::exportReadonlyPackage, this);
-  mpExportReadonlyPackageAction->setStatusTip(Helper::exportRealonlyPackageTip);
+  mpExportReadonlyPackageAction->setStatusTip(Helper::exportReadonlyPackageTip);
   connect(mpExportReadonlyPackageAction, SIGNAL(triggered()), SLOT(exportReadonlyPackage()));
   // Export XML Action
   mpExportXMLAction = new QAction(QIcon(":/Resources/icons/export-xml.svg"), Helper::exportXML, this);
@@ -2929,7 +2933,7 @@ void LibraryTreeView::createActions()
   connect(mpExportFigaroAction, SIGNAL(triggered()), SLOT(exportModelFigaro()));
   // Update Bindings Action
   mpUpdateBindingsAction = new QAction(tr("Update Bindings"), this);
-  mpUpdateBindingsAction->setStatusTip(tr("updates the bindings"));
+  mpUpdateBindingsAction->setStatusTip(tr("Updates the bindings"));
   connect(mpUpdateBindingsAction, SIGNAL(triggered()), SLOT(updateBindings()));
   // Generate Verification Scenarios Action
   mpGenerateVerificationScenariosAction = new QAction(tr("Generate Verification Scenarios"), this);
@@ -3182,6 +3186,7 @@ void LibraryTreeView::showContextMenu(QPoint point)
           menu.addSeparator();
           // add actions to Export menu
           exportMenu.addAction(mpExportFMUAction);
+          exportMenu.addAction(mpExportFMUWithSetupAction);
           if (pLibraryTreeItem->isTopLevel() && pLibraryTreeItem->getRestriction() == StringHandler::Package
               && pLibraryTreeItem->isSaveFolderStructure()) {
             exportMenu.addAction(mpExportReadonlyPackageAction);
@@ -3302,11 +3307,11 @@ void LibraryTreeView::openInformationDialog()
     QVBoxLayout *pLayout = new QVBoxLayout;
     pLayout->setAlignment(Qt::AlignTop);
     pLayout->addWidget(pHeadingLabel);
-    pLayout->addWidget(new Label(tr("Version : %1").arg(pLibraryTreeItem->getVersion())));
-    pLayout->addWidget(new Label(tr("Version Date : %1").arg(pLibraryTreeItem->getVersionDate())));
-    pLayout->addWidget(new Label(tr("Version Build : %1").arg(pLibraryTreeItem->getVersionBuild())));
-    pLayout->addWidget(new Label(tr("Date Modified : %1").arg(pLibraryTreeItem->getDateModified())));
-    pLayout->addWidget(new Label(tr("RevisionId : %1").arg(pLibraryTreeItem->getRevisionId())));
+    pLayout->addWidget(new Label(tr("Version: %1").arg(pLibraryTreeItem->getVersion())));
+    pLayout->addWidget(new Label(tr("Version Date: %1").arg(pLibraryTreeItem->getVersionDate())));
+    pLayout->addWidget(new Label(tr("Version Build: %1").arg(pLibraryTreeItem->getVersionBuild())));
+    pLayout->addWidget(new Label(tr("Date Modified: %1").arg(pLibraryTreeItem->getDateModified())));
+    pLayout->addWidget(new Label(tr("Revision ID: %1").arg(pLibraryTreeItem->getRevisionId())));
     pInformationDialog->setLayout(pLayout);
     pInformationDialog->exec();
   }
@@ -3771,6 +3776,19 @@ void LibraryTreeView::exportModelFMU()
   LibraryTreeItem *pLibraryTreeItem = getSelectedLibraryTreeItem();
   if (pLibraryTreeItem) {
     MainWindow::instance()->exportModelFMU(pLibraryTreeItem);
+  }
+}
+
+/*!
+ * \brief LibraryTreeView::exportModelFMUWithSetup
+ * Shows the settings of the FMU export for the selected LibraryTreeItem.
+ */
+void LibraryTreeView::exportModelFMUWithSetup()
+{
+  LibraryTreeItem *pLibraryTreeItem = getSelectedLibraryTreeItem();
+  if (pLibraryTreeItem) {
+    FMUExportDialog *pFMUExportDialog = new FMUExportDialog(pLibraryTreeItem, MainWindow::instance());
+    pFMUExportDialog->exec();
   }
 }
 
@@ -4622,7 +4640,7 @@ void LibraryWidget::saveAsLibraryTreeItem(LibraryTreeItem *pLibraryTreeItem)
   }
   if (pLibraryTreeItem->isModelica()) {
     if (pLibraryTreeItem->isSaveFolderStructure()) {
-      QMessageBox::information(this, QString("%1 - %2").arg(Helper::applicationName, Helper::error), tr("It is not possible to save as a Modelica package saved in a directory hierarchy Mapping."), QMessageBox::Ok);
+      QMessageBox::information(this, QString("%1 - %2").arg(Helper::applicationName, Helper::error), tr("Save As is not possible for a Modelica package that is saved as a directory hierarchy."), QMessageBox::Ok);
     } else {
       saveModelicaLibraryTreeItem(pLibraryTreeItem, true);
     }

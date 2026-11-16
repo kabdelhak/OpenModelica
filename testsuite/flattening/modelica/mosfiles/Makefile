@@ -39,7 +39,10 @@ QuotedIdentifierCSV.mos \
 Return.mos \
 StringArrayReturn.mos \
 StringSignificantDigits.mos \
+TestInstallMissingPackages.mos \
 TestLoadModel.mos \
+TestLoadModelMetadata.mos \
+TestLoadModelSolver.mos \
 UnpOpPrecedence.mos \
 UnusedVariable.mos \
 WhileStatement.mos WhileStatementIllegal.mos \
@@ -59,6 +62,8 @@ DEPENDENCIES = \
 *.mos \
 Makefile \
 TestLibrary \
+PackageMetadataLibs \
+PackageResolverLibs \
 ext_ExternalFunctionResultOrder.c \
 ISO-8859-1.mox
 
