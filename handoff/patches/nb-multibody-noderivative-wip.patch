@@ -1,0 +1,547 @@
+diff --git a/OMCompiler/Compiler/NBackEnd/Modules/1_Main/NBMatching.mo b/OMCompiler/Compiler/NBackEnd/Modules/1_Main/NBMatching.mo
+index a39fc2b438..bc5f7cd359 100644
+--- a/OMCompiler/Compiler/NBackEnd/Modules/1_Main/NBMatching.mo
++++ b/OMCompiler/Compiler/NBackEnd/Modules/1_Main/NBMatching.mo
+@@ -151,6 +151,8 @@ public
+     Option<Adjacency.Mapping> mapping;
+     Adjacency.MatrixStrictness matrixStrictness;
+     Boolean changed;
++    Adjacency.Matrix adj_ir;
++    Matching matching_ir;
+   algorithm
+     // 1. match the partition
+     try
+@@ -163,13 +165,28 @@ public
+       fail();
+     end try;
+ 
++    // TMPDEBUG
++    if not Partition.kindIsInitial(kind) then
++      print("TMPDEBUG singular restart " + intString(restarts) + ": vars " + intString(VariablePointers.scalarSize(vars)) + " eqns " + intString(EquationPointers.scalarSize(eqns, true))
++        + " unmatched eqns " + intString(sum(1 for e guard(e < 0) in matching.eqn_to_var)) + " unmatched vars " + intString(sum(1 for v guard(v < 0) in matching.var_to_eqn)) + "\n");
++    end if;
+     // 2. Resolve singular partitions if necessary
+     if Partition.kindIsInitial(kind) then
+       // ####### BALANCE INITIALIZATION #######
+       (adj, full, vars, eqns, varData, eqData, changed) := ResolveSingularities.balanceInitialization(adj, full, vars, eqns, varData, eqData, kind, funcMap, matching, mapping);
+     else
+       // ####### INDEX REDUCTION #######
+-      (adj, full, vars, eqns, varData, eqData, changed) := ResolveSingularities.indexReduction(adj, full, vars, eqns, varData, eqData, kind, funcMap, matching, mapping);
++      // the derivative of a function call has no derivatives of its noDerivative inputs, so the
++      // singular subsets are found without these edges. the regular matching may still use them.
++      adj_ir := adj;
++      matching_ir := matching;
++      if Array.any(matching.eqn_to_var, function intLt(i2 = 0)) then
++        adj_ir := Adjacency.Matrix.removeNoDerivativeEdges(adj, vars, eqns, funcMap);
++        if not referenceEq(adj_ir, adj) then
++          matching_ir := regular(EMPTY_MATCHING, adj_ir, transposed, true);
++        end if;
++      end if;
++      (_, full, vars, eqns, varData, eqData, changed) := ResolveSingularities.indexReduction(adj_ir, full, vars, eqns, varData, eqData, kind, funcMap, matching_ir, mapping);
+     end if;
+ 
+     // 3. Recompute adjacency and restart matching if something changed in step 2.
+diff --git a/OMCompiler/Compiler/NBackEnd/Modules/1_Main/NBResolveSingularities.mo b/OMCompiler/Compiler/NBackEnd/Modules/1_Main/NBResolveSingularities.mo
+index b5a1d35c8f..85777f9574 100644
+--- a/OMCompiler/Compiler/NBackEnd/Modules/1_Main/NBResolveSingularities.mo
++++ b/OMCompiler/Compiler/NBackEnd/Modules/1_Main/NBResolveSingularities.mo
+@@ -50,11 +50,13 @@ protected
+   import SimplifyExp = NFSimplifyExp;
+   import Call = NFCall;
+   import NFFunction.Function;
++  import Absyn.Path;
+   import Subscript = NFSubscript;
+   import Type = NFType;
+ 
+   // NB imports
+   import Adjacency = NBAdjacency;
++  import BackendDAE = NBackendDAE;
+   import NBFunctionAlias.Call_Aux;
+   import Differentiate = NBDifferentiate;
+   import NBEquation.{Equation, EqData, EquationAttributes, EquationKind, EquationPointer, EquationPointers, IfEquationBody, SlicingStatus, Iterator};
+@@ -183,7 +185,7 @@ public
+       // state candidates and constraint equations are lists of slices
+       // adjacency matrix and arrays are only full based
+       // slice them before matching
+-      (constraint_ptrs, candidate_ptrs, constraint_eqns) := getConstraintsAndCandidates(equations, marked_eqns, mapping);
++      (constraint_ptrs, candidate_ptrs, constraint_eqns) := getConstraintsAndCandidates(equations, marked_eqns, mapping, funcMap);
+ 
+       for eq in constraint_eqns loop
+         UnorderedMap.add(Equation.getEqnName(Slice.getT(eq)), UnorderedSet.fromList(eq.indices, Util.id, intEq), slice_map);
+@@ -279,10 +281,61 @@ public
+           end if;
+         end for;
+ 
++        // the dummy states are chosen from linear occurrences. if they are not enough, also allow
++        // nonlinear ones, e.g. joint angles that become dummies because of a forced state
++        if not Adjacency.Matrix.isEmpty(set_adj) and Array.any(set_matching.eqn_to_var, function intLt(i2 = 0)) then
++          vo := UnorderedMap.merge(vo, UnorderedMap.copy(vn), sourceInfo());
++          set_adj := Adjacency.Matrix.upgrade(set_adj, full_local, vo, eo, constraint_ptrs, NBAdjacency.MatrixStrictness.MATCHING);
++          set_matching := Matching.regular(set_matching, set_adj, false, true, false);
++        end if;
++
+         // parse the result of the matching
+         (dummy_states, states, matched_eqns, unmatched_eqns) := Matching.getMatches(set_matching, Adjacency.Matrix.getMappingOpt(set_adj), candidate_ptrs, constraint_ptrs);
+       end if;
++      // TMPDEBUG
++      print("TMPDEBUG dummy matching: constraints " + intString(sum(Slice.size(eq, function Equation.size(resize = true)) for eq in constraint_eqns))
++        + " dummies " + intString(sum(Slice.size(v, function BVariable.size(resize = true)) for v in dummy_states))
++        + " states " + intString(sum(Slice.size(v, function BVariable.size(resize = true)) for v in states))
++        + " unmatched before filter " + intString(sum(Slice.size(eq, function Equation.size(resize = true)) for eq in unmatched_eqns)) + "\n");
++      print("TMPDEBUG candidates " + intString(VariablePointers.scalarSize(candidate_ptrs)) + "\n");
++      if not listEmpty(unmatched_eqns) then
++        () := match set_adj
++          local
++            array<list<Integer>> dbg_sets;
++            UnorderedSet<Integer> dbg_eqns, dbg_vars;
++            array<Integer> dbg_data;
++          case Adjacency.FINAL() algorithm
++            dbg_sets := getMSSS(set_adj.m, set_adj.mT, set_matching, arrayCreate(EquationPointers.size(constraint_ptrs), false), set_adj.mapping);
++            dbg_eqns := UnorderedSet.new(Util.id, intEq);
++            dbg_vars := UnorderedSet.new(Util.id, intEq);
++            dbg_data := Adjacency.IntMatrix.entries(set_adj.m);
++            for lst in dbg_sets loop for e in lst loop
++              UnorderedSet.add(set_adj.mapping.eqn_StA[e], dbg_eqns);
++              for k in set_adj.m.start[e]:set_adj.m.start[e] + set_adj.m.len[e] - 1 loop
++                UnorderedSet.add(set_adj.mapping.var_StA[intAbs(dbg_data[k])], dbg_vars);
++              end for;
++            end for; end for;
++            print("TMPDEBUG deficient set: " + intString(sum(listLength(l) for l in dbg_sets)) + " scalar eqns\n");
++            for e in UnorderedSet.toList(dbg_eqns) loop
++              print("TMPDEBUG   E " + Equation.pointerToString(EquationPointers.getEqnAt(constraint_ptrs, e)) + "\n");
++            end for;
++            for v in UnorderedSet.toList(dbg_vars) loop
++              print("TMPDEBUG   V " + BVariable.pointerToString(VariablePointers.getVarAt(candidate_ptrs, v)) + "\n");
++            end for;
++          then ();
++          else ();
++        end match;
++      end if;
++      for v in VariablePointers.toList(candidate_ptrs) loop
++        if not (List.any(dummy_states, function sliceIsVar(v = v)) or List.any(states, function sliceIsVar(v = v))) then
++          print("TMPDEBUG   neither " + BVariable.pointerToString(v) + "\n");
++        end if;
++      end for;
++      for eq in unmatched_eqns loop
++        print("TMPDEBUG   unmatched " + Slice.toString(eq, function Equation.pointerToString(str = ""), 10) + "\n");
++      end for;
+       unmatched_eqns := resolveSlicedUnmatched(unmatched_eqns, slice_map);
++      print("TMPDEBUG unmatched after filter " + intString(listLength(unmatched_eqns)) + "\n");
+ 
+       // sliced state/dummy candidates have to be resolved before differentiation, so the
+       // constraint equations reference the whole alias rather than a slice of the
+@@ -319,6 +372,9 @@ public
+       // differentiate all eqns
+       for constraint in EquationPointers.toList(constraint_ptrs) loop
+         diffed_eqn := Differentiate.differentiateEquationPointer(constraint, diffArguments_ptr);
++        // inlined derivative functions (e.g. resolve1_der) leave crefs with frontend nodes
++        Pointer.update(diffed_eqn, Equation.map(Pointer.access(diffed_eqn),
++          function BackendDAE.lowerComponentReferenceExp(variables = variables, complete = false)));
+         diffed_eqn := removeSlicedDerivatives(diffed_eqn, UnorderedMap.getSafe(Equation.getEqnName(constraint), slice_map, sourceInfo()), dummy_slice_set, VarData.getUniqueIndex(varData));
+         new_eqns := diffed_eqn :: new_eqns;
+         if Flags.isSet(Flags.DUMMY_SELECT) then
+@@ -394,6 +450,14 @@ public
+       // new equations
+       eqData := EqData.addTypedList(eqData, new_eqns, EqData.EqType.CONTINUOUS);
+ 
++      // TMPDEBUG
++      print("TMPDEBUG IR before: vars " + intString(VariablePointers.scalarSize(variables)) + " eqns " + intString(EquationPointers.scalarSize(equations, true)) + "\n");
++      print("TMPDEBUG IR new_eqns " + intString(sum(Equation.size(e, true) for e in new_eqns)) + " new_vars " + intString(sum(BVariable.size(v, true) for v in diffArguments.new_vars))
++        + " dummy_states " + intString(sum(BVariable.size(v, true) for v in sliced_dummy_states)) + " states " + intString(sum(BVariable.size(v, true) for v in sliced_states))
++        + " der_aliases " + intString(listLength(der_aliases)) + " dummy_slice " + intString(UnorderedSet.size(dummy_slice_set)) + "\n");
++      print("TMPDEBUG IR dummy states already unknown: " + intString(sum(BVariable.size(v, true) for v guard(VariablePointers.contains(v, variables)) in sliced_dummy_states))
++        + " states not unknown: " + intString(sum(BVariable.size(v, true) for v guard(not VariablePointers.contains(v, variables)) in sliced_states))
++        + " new_vars already unknown: " + intString(sum(BVariable.size(v, true) for v guard(VariablePointers.contains(v, variables)) in diffArguments.new_vars)) + "\n");
+       // add all new differentiated variables
+       variables := VariablePointers.addList(diffArguments.new_vars, variables);
+       // add all dummy states
+@@ -407,6 +471,7 @@ public
+       dummy_slice_vars := list(BVariable.getVarPointer(cref, sourceInfo()) for cref in UnorderedSet.toList(dummy_slice_set));
+       varData := VarData.addTypedList(varData, dummy_slice_vars, NBVariable.VarData.VarType.ALGEBRAIC);
+       variables := VariablePointers.addList(dummy_slice_vars, variables);
++      print("TMPDEBUG IR after: vars " + intString(VariablePointers.scalarSize(variables)) + " eqns " + intString(EquationPointers.scalarSize(equations, true)) + "\n");
+     else
+       changed := false;
+     end if;
+@@ -714,6 +779,7 @@ protected
+     input EquationPointers equations;
+     input list<Integer> marked_eqns;
+     input Adjacency.Mapping mapping;
++    input UnorderedMap<Path, Function> funcMap;
+     output EquationPointers constr = EquationPointers.empty();
+     output VariablePointers states = VariablePointers.empty();
+     output list<Slice<EquationPointer>> sliced_constr = {};
+@@ -723,11 +789,15 @@ protected
+     UnorderedSet<ComponentRef> state_candidates = UnorderedSet.new(ComponentRef.hash, ComponentRef.isEqual);
+     Pointer<Equation> eqn_ptr;
+     Pointer<Variable> var_ptr;
++    UnorderedSet<ComponentRef> no_der, other;
++    Integer start_idx;
+   algorithm
+     // collect all relevant constraint equations
+     for eqn in marked_eqns loop
+       UnorderedSet.add(mapping.eqn_StA[eqn], eqn_indices);
+-      eqn_slices[mapping.eqn_StA[eqn]] := eqn :: eqn_slices[mapping.eqn_StA[eqn]];
++      // local element index, like the slices of Matching.getMatches
++      (start_idx, _) := mapping.eqn_AtS[mapping.eqn_StA[eqn]];
++      eqn_slices[mapping.eqn_StA[eqn]] := (eqn - start_idx) :: eqn_slices[mapping.eqn_StA[eqn]];
+     end for;
+ 
+     // get the constraint equation, add it to the array and add all slices of it to the slice list
+@@ -736,8 +806,12 @@ protected
+       eqn_ptr := EquationPointers.getEqnAt(equations, eqn);
+       constr  := EquationPointers.add(eqn_ptr, constr);
+       sliced_constr := Slice.SLICE(eqn_ptr, eqn_slices[eqn]) :: sliced_constr;
++      // variables only in noDerivative inputs have no derivative in the differentiated equation
++      (no_der, other) := Adjacency.noDerivativeCrefs(Pointer.access(eqn_ptr), funcMap);
+       for candidate in Equation.collectCrefs(Pointer.access(eqn_ptr), getStateCandidate) loop
+-        UnorderedSet.add(candidate, state_candidates);
++        if UnorderedSet.isEmpty(no_der) or not Adjacency.isNoDerivativeOnly(candidate, no_der, other) then
++          UnorderedSet.add(candidate, state_candidates);
++        end if;
+       end for;
+     end for;
+ 
+@@ -1177,6 +1251,12 @@ protected
+     end match;
+   end substituteSlicedDummyExp;
+ 
++  function sliceIsVar "TMPDEBUG"
++    input Slice<VariablePointer> slice;
++    input Pointer<Variable> v;
++    output Boolean b = ComponentRef.isEqual(BVariable.getVarName(Slice.getT(slice)), BVariable.getVarName(v));
++  end sliceIsVar;
++
+   function resolveSlicedUnmatched
+     "removes all the unmatched slices that are irrelevant"
+     input list<Slice<EquationPointer>> old_unmatched;
+diff --git a/OMCompiler/Compiler/NBackEnd/Modules/1_Main/NBSorting.mo b/OMCompiler/Compiler/NBackEnd/Modules/1_Main/NBSorting.mo
+index 29ab55a719..fad097cc86 100644
+--- a/OMCompiler/Compiler/NBackEnd/Modules/1_Main/NBSorting.mo
++++ b/OMCompiler/Compiler/NBackEnd/Modules/1_Main/NBSorting.mo
+@@ -581,6 +581,22 @@ public
+           end for;
+ 
+           // phase 3 tarjan only reads phase2_adj.m, so mT is left as it is
++          // TMPDEBUG
++          for e in 1:arrayLength(matching.eqn_to_var) loop
++            if matching.eqn_to_var[e] > 0 and matching.var_to_eqn[matching.eqn_to_var[e]] <> e then
++              print("TMPDEBUG inconsistent eqn " + intString(e) + " -> var " + intString(matching.eqn_to_var[e]) + " -> eqn " + intString(matching.var_to_eqn[matching.eqn_to_var[e]]) + "\n");
++            end if;
++          end for;
++          for v in 1:arrayLength(phase2_matching.var_to_eqn) loop
++            if phase2_matching.var_to_eqn[v] > 0 and phase2_matching.var_to_eqn[v] <= arrayLength(super_nodes) then
++              _ := match super_nodes[phase2_matching.var_to_eqn[v]]
++                case ELEMENT() algorithm
++                  print("TMPDEBUG var " + intString(v) + " still points to element eqn " + intString(phase2_matching.var_to_eqn[v]) + " " + SuperNode.toString(super_nodes[phase2_matching.var_to_eqn[v]]) + " eqn_to_var=" + intString(matching.eqn_to_var[phase2_matching.var_to_eqn[v]]) + "\n");
++                then ();
++                else ();
++              end match;
++            end if;
++          end for;
+ 
+         then phase2_adj;
+ 
+diff --git a/OMCompiler/Compiler/NBackEnd/Util/NBAdjacency.mo b/OMCompiler/Compiler/NBackEnd/Util/NBAdjacency.mo
+index cb66daf847..caaac0562a 100644
+--- a/OMCompiler/Compiler/NBackEnd/Util/NBAdjacency.mo
++++ b/OMCompiler/Compiler/NBackEnd/Util/NBAdjacency.mo
+@@ -54,6 +54,7 @@ protected
+   import Dimension = NFDimension;
+   import Expression = NFExpression;
+   import NFFunction.Function;
++  import FunctionDerivative = NFFunctionDerivative;
+   import SimplifyExp = NFSimplifyExp;
+   import Statement = NFStatement;
+   import Subscript = NFSubscript;
+@@ -866,6 +867,64 @@ public
+       output Matrix adj = upgrade(EMPTY(MatrixStrictness.FULL), full, vars_map, eqns_map, eqns, st, iter);
+     end fullToFinal;
+ 
++    function removeNoDerivativeEdges
++      "removes the edges to variables that only occur in noDerivative inputs of function calls.
++      The derivative of the equation does not contain their derivatives, so index reduction
++      must not rely on them. Returns the input matrix if nothing is removed."
++      input Matrix adj;
++      input VariablePointers vars;
++      input EquationPointers eqns;
++      input UnorderedMap<Path, Function> funcMap;
++      output Matrix result = adj;
++    protected
++      IntMatrix m;
++      array<Integer> data;
++      UnorderedSet<ComponentRef> no_der, other;
++      Integer start, len, var_idx;
++      list<Integer> skip, checked, row_vars;
++      Boolean changed = false;
++    algorithm
++      () := match adj
++        case FINAL() algorithm
++          m := IntMatrix.new(IntMatrix.rows(adj.m));
++          data := IntMatrix.entries(adj.m);
++          for e in 1:arrayLength(adj.mapping.eqn_AtS) loop
++            (start, len) := adj.mapping.eqn_AtS[e];
++            if start > 0 then
++              skip := {};
++              (no_der, other) := noDerivativeCrefs(Pointer.access(EquationPointers.getEqnAt(eqns, e)), funcMap);
++              if not UnorderedSet.isEmpty(no_der) then
++                checked := {};
++                for row in start:start + len - 1 loop
++                  for k in adj.m.start[row]:adj.m.start[row] + adj.m.len[row] - 1 loop
++                    var_idx := adj.mapping.var_StA[intAbs(data[k])];
++                    if not List.isMemberOnTrue(var_idx, checked, intEq) then
++                      checked := var_idx :: checked;
++                      if isNoDerivativeOnly(BVariable.getVarName(VariablePointers.getVarAt(vars, var_idx)), no_der, other) then
++                        skip := var_idx :: skip;
++                      end if;
++                    end if;
++                  end for;
++                end for;
++              end if;
++              for row in start:start + len - 1 loop
++                row_vars := IntMatrix.toList(adj.m, row);
++                if not listEmpty(skip) then
++                  row_vars := list(v for v guard(not List.isMemberOnTrue(adj.mapping.var_StA[intAbs(v)], skip, intEq)) in row_vars);
++                  changed := true;
++                end if;
++                IntMatrix.setRow(m, row, row_vars);
++              end for;
++            end if;
++          end for;
++          if changed then
++            result := FINAL(m, IntMatrix.transpose(m, IntMatrix.rows(adj.mT)), adj.mapping, adj.modes, adj.st);
++          end if;
++        then ();
++        else ();
++      end match;
++    end removeNoDerivativeEdges;
++
+     function fullToSparsity
+       input Matrix full;
+       input list<StrongComponent> comps;
+@@ -2592,6 +2651,117 @@ public
+ 
+   end Matrix;
+ 
++  function noDerivativeCrefs
++    "the crefs of an equation occurring in noDerivative inputs of function calls and all others"
++    input Equation eqn;
++    input UnorderedMap<Path, Function> funcMap;
++    output UnorderedSet<ComponentRef> noDer = UnorderedSet.new(ComponentRef.hash, ComponentRef.isEqual);
++    output UnorderedSet<ComponentRef> other = UnorderedSet.new(ComponentRef.hash, ComponentRef.isEqual);
++  algorithm
++    Equation.map(eqn, function collectNoDerivativeCrefs(funcMap = funcMap, noDer = noDer, other = other),
++      SOME(function collectOtherCref(other = other)), Expression.fakeMap);
++  end noDerivativeCrefs;
++
++  function isNoDerivativeOnly
++    "true if the variable only occurs in noDerivative inputs"
++    input ComponentRef name;
++    input UnorderedSet<ComponentRef> noDer;
++    input UnorderedSet<ComponentRef> other;
++    output Boolean b;
++  protected
++    ComponentRef stripped = ComponentRef.stripSubscriptsAll(name);
++  algorithm
++    b := crefOverlaps(stripped, noDer) and not crefOverlaps(stripped, other);
++  end isNoDerivativeOnly;
++
++  function collectNoDerivativeCrefs
++    "sorts the crefs of an expression into the ones occurring in noDerivative
++    inputs of function calls and all others (subscripts stripped)"
++    input output Expression exp;
++    input UnorderedMap<Path, Function> funcMap;
++    input UnorderedSet<ComponentRef> noDer;
++    input UnorderedSet<ComponentRef> other;
++  protected
++    list<Integer> positions;
++    Integer i;
++  algorithm
++    () := match exp
++      local
++        Call call;
++        ComponentRef cref;
++
++      case Expression.CALL(call = call as Call.TYPED_CALL()) algorithm
++        positions := noDerivativePositions(call.fn, funcMap);
++        i := 1;
++        for arg in call.arguments loop
++          if List.isMemberOnTrue(i, positions, intEq) then
++            for c in UnorderedSet.toList(Expression.extractCrefs(arg)) loop
++              UnorderedSet.add(ComponentRef.stripSubscriptsAll(c), noDer);
++            end for;
++          else
++            collectNoDerivativeCrefs(arg, funcMap, noDer, other);
++          end if;
++          i := i + 1;
++        end for;
++      then ();
++
++      case Expression.CREF(cref = cref) algorithm
++        UnorderedSet.add(ComponentRef.stripSubscriptsAll(cref), other);
++      then ();
++
++      else algorithm
++        Expression.mapShallow(exp, function collectNoDerivativeCrefs(funcMap = funcMap, noDer = noDer, other = other));
++      then ();
++    end match;
++  end collectNoDerivativeCrefs;
++
++  function collectOtherCref
++    input output ComponentRef cref;
++    input UnorderedSet<ComponentRef> other;
++  algorithm
++    UnorderedSet.add(ComponentRef.stripSubscriptsAll(cref), other);
++  end collectOtherCref;
++
++  function noDerivativePositions
++    "input positions of a function marked noDerivative in its first derivative annotation"
++    input Function fn;
++    input UnorderedMap<Path, Function> funcMap;
++    output list<Integer> positions = {};
++  protected
++    Function full_fn = UnorderedMap.getOrDefault(Function.name(fn), funcMap, fn);
++  algorithm
++    if not listEmpty(full_fn.derivatives) then
++      positions := FunctionDerivative.noDerivativeInputs(listHead(full_fn.derivatives));
++    end if;
++  end noDerivativePositions;
++
++  function crefOverlaps
++    "true if the cref is a prefix of an element of the set or the other way around"
++    input ComponentRef cref;
++    input UnorderedSet<ComponentRef> set;
++    output Boolean b = false;
++  algorithm
++    for c in UnorderedSet.toList(set) loop
++      if crefHasPrefix(cref, c) or crefHasPrefix(c, cref) then
++        b := true;
++        return;
++      end if;
++    end for;
++  end crefOverlaps;
++
++  function crefHasPrefix
++    input ComponentRef cref;
++    input ComponentRef prefix;
++    output Boolean b;
++  algorithm
++    b := match cref
++      local
++        ComponentRef rest;
++      case ComponentRef.CREF(restCref = rest) then ComponentRef.isEqual(cref, prefix) or crefHasPrefix(rest, prefix);
++      else false;
++    end match;
++  end crefHasPrefix;
++
+   uniontype Dependency
+     "the dependency kind to show how a component reference occurs in an equation.
+     for each dimension there has to be one dependency kind."
+diff --git a/OMCompiler/Compiler/NBackEnd/Util/NBDifferentiate.mo b/OMCompiler/Compiler/NBackEnd/Util/NBDifferentiate.mo
+index ac49db94c9..f29985eed2 100644
+--- a/OMCompiler/Compiler/NBackEnd/Util/NBDifferentiate.mo
++++ b/OMCompiler/Compiler/NBackEnd/Util/NBDifferentiate.mo
+@@ -43,6 +43,7 @@ public
+   // OF imports
+   import Absyn.Path;
+   import AbsynUtil;
++  import DAE;
+ 
+   // NF imports
+   import Algorithm = NFAlgorithm;
+@@ -56,6 +57,7 @@ public
+   import ComponentRef = NFComponentRef;
+   import Dimension = NFDimension;
+   import Expression = NFExpression;
++  import Inline = NFInline;
+   import InstContext = NFInstContext;
+   import NFInstNode.{InstNode, CachedData};
+   import NFFunction.{Function, Slot};
+@@ -1777,6 +1779,11 @@ public
+           else
+             arguments := listAppend(call.arguments, arguments);
+             ret := Expression.CALL(Call.makeTypedCall(der_func, arguments, call.var, call.purity));
++            // inline derivatives like resolve1_der for index reduction, so the noDerivative
++            // inputs of the functions they call stay visible
++            if diffArguments.diffType == DifferentiationType.TIME then
++              ret := inlineDerivativeCall(ret, der_func);
++            end if;
+           end if;
+         else
+           // The function is not in the function tree and not builtin -> error
+@@ -1798,6 +1805,17 @@ public
+     end if;
+   end differentiateCall;
+ 
++  function inlineDerivativeCall
++    "inlines a call to a derivative function annotated with Inline=true"
++    input output Expression exp;
++    input Function der_func;
++  algorithm
++    exp := match Function.inlineBuiltin(der_func)
++      case DAE.InlineType.NORM_INLINE() then Inline.inlineCall(exp);
++      else exp;
++    end match;
++  end inlineDerivativeCall;
++
+   function differentiateReduction
+     "This function differentiates reduction expressions with respect to a given variable.
+     Also creates and multiplies inner derivatives."
+diff --git a/OMCompiler/Compiler/NFFrontEnd/NFFunctionDerivative.mo b/OMCompiler/Compiler/NFFrontEnd/NFFunctionDerivative.mo
+index 7c44f3e03a..0c972f6499 100644
+--- a/OMCompiler/Compiler/NFFrontEnd/NFFunctionDerivative.mo
++++ b/OMCompiler/Compiler/NFFrontEnd/NFFunctionDerivative.mo
+@@ -232,6 +232,22 @@ public
+     end for;
+   end conditionsFromMap;
+ 
++  function noDerivativeInputs
++    "the input indices marked noDerivative"
++    input FunctionDerivative fnDer;
++    output list<Integer> indices = {};
++  protected
++    Integer idx;
++    Condition cond;
++  algorithm
++    for c in fnDer.conditions loop
++      (idx, _, cond) := c;
++      if cond == Condition.NO_DERIVATIVE then
++        indices := idx :: indices;
++      end if;
++    end for;
++  end noDerivativeInputs;
++
+ protected
+ 
+   function conditionToString
+diff --git a/OMCompiler/Compiler/NFFrontEnd/NFInline.mo b/OMCompiler/Compiler/NFFrontEnd/NFInline.mo
+index 053f2fc547..28ddb8278b 100644
+--- a/OMCompiler/Compiler/NFFrontEnd/NFInline.mo
++++ b/OMCompiler/Compiler/NFFrontEnd/NFInline.mo
+@@ -171,6 +171,10 @@ algorithm
+ 
+           exp := getOutputExp(stmt, InstNode.fromHandle(listHead(outputs)), call);
+           exp := Expression.map(exp, function inlineCallExp(forceInline = forceInline));
++          // the body is typed with the unknown input dimensions, e.g. Real[:]
++          if Type.hasKnownSize(call.ty) and not Type.hasKnownSize(Expression.typeOf(exp)) then
++            exp := Expression.setType(call.ty, exp);
++          end if;
+         else
+           exp := callExp;
+         end try;
+diff --git a/OMCompiler/Compiler/Template/CodegenCFunctions.tpl b/OMCompiler/Compiler/Template/CodegenCFunctions.tpl
+index 4a828efde9..ae40b226fc 100644
+--- a/OMCompiler/Compiler/Template/CodegenCFunctions.tpl
++++ b/OMCompiler/Compiler/Template/CodegenCFunctions.tpl
+@@ -7555,9 +7555,9 @@ let &sub = buffer ""
+     let &preExp += '<%rcReleaseBefore(arr_tp_str, tvar)%>cross_alloc_<%arr_tp_str%>(&<%var1%>, &<%var2%>, &<%tvar%>);<%\n%>'
+     tvar
+ 
+-  case CALL(path=IDENT(name="identity"), expLst={A}) then
++  case CALL(path=IDENT(name="identity"), expLst={A}, attr=CALL_ATTR(ty=ty)) then
+     let var1 = daeExpAsLValue(A, context, &preExp, &varDecls, &varFrees, &auxFunction)
+-    let arr_tp_str = expTypeFromExpArray(A)
++    let arr_tp_str = expTypeArray(ty)
+     let tvar = tempDecl(arr_tp_str, &varDecls, &varFrees)
+     let &preExp += '<%rcReleaseBefore(arr_tp_str, tvar)%>identity_alloc_<%arr_tp_str%>(<%var1%>, &<%tvar%>);<%\n%>'
+     tvar

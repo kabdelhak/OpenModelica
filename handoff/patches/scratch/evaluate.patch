@@ -1,0 +1,14 @@
+diff --git a/OMCompiler/Compiler/NFFrontEnd/NFInst.mo b/OMCompiler/Compiler/NFFrontEnd/NFInst.mo
+index b3c51a9e22..289df4b5af 100644
+--- a/OMCompiler/Compiler/NFFrontEnd/NFInst.mo
++++ b/OMCompiler/Compiler/NFFrontEnd/NFInst.mo
+@@ -2879,7 +2879,8 @@ algorithm
+ 
+     case Expression.CREF(cref = ComponentRef.CREF())
+       guard InstNode.isComponent(ComponentRef.node(exp.cref)) and
+-            Component.variability(InstNode.component(ComponentRef.node(exp.cref))) == Variability.PARAMETER
++            Component.variability(InstNode.component(ComponentRef.node(exp.cref))) == Variability.PARAMETER and
++            not Util.getOptionOrDefault(Component.getEvaluateAnnotation(InstNode.component(ComponentRef.node(exp.cref))), false)
+       algorithm
+         node := ComponentRef.node(exp.cref);
+         comp := InstNode.component(node);

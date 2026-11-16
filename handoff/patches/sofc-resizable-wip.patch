@@ -1,0 +1,225 @@
+diff --git a/OMCompiler/Compiler/NBackEnd/Classes/NBVariable.mo b/OMCompiler/Compiler/NBackEnd/Classes/NBVariable.mo
+index f924459359..defec6ecc0 100644
+--- a/OMCompiler/Compiler/NBackEnd/Classes/NBVariable.mo
++++ b/OMCompiler/Compiler/NBackEnd/Classes/NBVariable.mo
+@@ -1951,23 +1951,26 @@ function isJacobianResultVar
+     Expression binding;
+     function isEvaluable
+       input Expression exp;
++      input Boolean resizable;
+       output Boolean b;
+     protected
+       Expression new_exp;
+     algorithm
+       b := Expression.isLiteralXML(exp);
+-      if not b then
++      if not b or resizable then
+         // try to extract literal from array constructor (use dummy map, there should not be any new iterators)
+         (_, new_exp) := Iterator.extract(exp);
+         new_exp := SimplifyExp.simplifyDump(new_exp, true, getInstanceName());
+-        b := Expression.isLiteralXML(Ceval.tryEvalExp(new_exp));
++        // the start value of a resizable array has to be a scalar that is broadcast to all elements
++        b := Expression.isLiteralXML(Ceval.tryEvalExp(new_exp)) and
++             not (resizable and Type.isArray(Expression.typeOf(new_exp)));
+       end if;
+     end isEvaluable;
+   algorithm
+     // check binding
+     if isBound(var_ptr) then
+       binding := Binding.getExp(var.binding);
+-      b := isEvaluable(binding);
++      b := isEvaluable(binding, Type.isResizable(var.ty));
+     else
+       b := false;
+     end if;
+diff --git a/OMCompiler/Compiler/NBackEnd/Modules/3_Post/NBTearing.mo b/OMCompiler/Compiler/NBackEnd/Modules/3_Post/NBTearing.mo
+index ca61e321c7..8117f358fe 100644
+--- a/OMCompiler/Compiler/NBackEnd/Modules/3_Post/NBTearing.mo
++++ b/OMCompiler/Compiler/NBackEnd/Modules/3_Post/NBTearing.mo
+@@ -890,6 +890,7 @@ protected
+         strict.residual_eqns := list(wholeEqnSlice(e) for e in strict.residual_eqns);
+         if Flags.getConfigBool(Flags.RESIZABLE_ARRAYS) then
+           strict.residual_eqns := List.flatten(list(restrictedForSlice(e, eq_index) for e in strict.residual_eqns));
++          strict.residual_eqns := List.flatten(list(bodyElementFors(e, eq_index) for e in strict.residual_eqns));
+         end if;
+ 
+         // inline potential records
+@@ -965,6 +966,45 @@ protected
+     end match;
+   end restrictedForSlice;
+ 
++  function bodyElementFors
++    "a whole for-equation with a fixed size array body as one for-equation per
++     body element, the iterators stay symbolic"
++    input Slice<EquationPointer> slice;
++    input Pointer<Integer> eq_index;
++    output list<Slice<EquationPointer>> slices = {slice};
++  protected
++    Equation eqn, body;
++    list<Integer> sizes;
++    list<Subscript> subs;
++    Pointer<Equation> eqn_ptr;
++  algorithm
++    if not listEmpty(slice.indices) then
++      return;
++    end if;
++    eqn := Pointer.access(Slice.getT(slice));
++    () := match eqn
++      case Equation.FOR_EQUATION(body = {body as Equation.ARRAY_EQUATION(recordSize = NONE())}) guard
++          List.all(Type.arrayDims(body.ty), function Dimension.isKnown(allowExp = false)) and
++          not List.any(Type.arrayDims(body.ty), Dimension.isResizable) algorithm
++        sizes := list(Dimension.size(d) for d in Type.arrayDims(body.ty));
++        slices := {};
++        for i in 0:List.fold(sizes, intMul, 1)-1 loop
++          subs := list(Subscript.INDEX(Expression.INTEGER(l + 1)) for l in Slice.indexToLocation(i, sizes));
++          eqn.body := {Equation.SCALAR_EQUATION(Type.arrayElementType(body.ty),
++            SimplifyExp.simplifyDump(Equation.scalarizeElement(body.lhs, subs), true, getInstanceName()),
++            SimplifyExp.simplifyDump(Equation.scalarizeElement(body.rhs, subs), true, getInstanceName()),
++            body.source, body.attr)};
++          eqn.size := Iterator.size(eqn.iter);
++          eqn_ptr := Pointer.create(eqn);
++          Equation.createName(eqn_ptr, eq_index, NBEquation.SIMULATION_STR);
++          slices := Slice.SLICE(eqn_ptr, {}) :: slices;
++        end for;
++        slices := listReverse(slices);
++      then ();
++      else ();
++    end match;
++  end bodyElementFors;
++
+   function restrictedIterators
+     "the iterator restricted to the boxes of the iterations, empty if not possible"
+     input Iterator iter;
+@@ -1776,12 +1816,13 @@ protected
+   end cellierMarkScalarKnown;
+ 
+   function cellierRowCapable
+-    "true for equations whose rows can be solved one at a time"
++    "true for equations whose rows can be solved one at a time, the number of
++    rows of a resizable equation is not known"
+     input Equation eqn;
+     output Boolean b;
+   algorithm
+     b := match eqn
+-      case Equation.FOR_EQUATION(body = {Equation.SCALAR_EQUATION()}) then true;
++      case Equation.FOR_EQUATION(body = {Equation.SCALAR_EQUATION()}) then not Iterator.isResizable(eqn.iter);
+       else false;
+     end match;
+   end cellierRowCapable;
+diff --git a/OMCompiler/Compiler/NFFrontEnd/NFCeval.mo b/OMCompiler/Compiler/NFFrontEnd/NFCeval.mo
+index f25ca655d3..c0c11a42c9 100644
+--- a/OMCompiler/Compiler/NFFrontEnd/NFCeval.mo
++++ b/OMCompiler/Compiler/NFFrontEnd/NFCeval.mo
+@@ -530,6 +530,8 @@ algorithm
+ 
+         // Replace the split subscripts with the corresponding subscripts from the cref.
+         subs := list(subscriptBinding3(s, sub_map) for s in subs);
++        (subs, subMap) := List.mapFold(subs, function Subscript.mapFoldExpShallow(
++          func = function subscriptBinding2(cref = cref, evalSubscripts = evalSubscripts)), subMap);
+ 
+         // Evaluate the subscripts if it was requested.
+         if evalSubscripts then
+diff --git a/OMCompiler/Compiler/SimCode/SimCodeCodegenUtil.mo b/OMCompiler/Compiler/SimCode/SimCodeCodegenUtil.mo
+index 26697eabea..4d9f257968 100644
+--- a/OMCompiler/Compiler/SimCode/SimCodeCodegenUtil.mo
++++ b/OMCompiler/Compiler/SimCode/SimCodeCodegenUtil.mo
+@@ -1392,7 +1392,7 @@ algorithm
+   end match;
+ end simIteratorSizeExp;
+ 
+-protected function typeSizeExp
++public function typeSizeExp
+   "the number of scalar elements of a type as an expression"
+   input DAE.Type ty;
+   output DAE.Exp exp = DAE.ICONST(1);
+diff --git a/OMCompiler/Compiler/Template/CodegenCFunctions.tpl b/OMCompiler/Compiler/Template/CodegenCFunctions.tpl
+index 6c01e833b0..e58cea13db 100644
+--- a/OMCompiler/Compiler/Template/CodegenCFunctions.tpl
++++ b/OMCompiler/Compiler/Template/CodegenCFunctions.tpl
+@@ -9018,7 +9018,7 @@ template startArrayEnsureSize(ComponentRef cr)
+   written into it, it has to hold one element per array element."
+ ::=
+   match getDimensionSizes(crefTypeFull(crefStripSubs(popCref(cr))))
+-  case sizes as _::_ then
++  case _::_ then
+     match cref2simvar(crefStripSubs(popCref(cr)), getSimCode())
+     case var as SIMVAR(__) then
+       let ty = crefShortType(name)
+@@ -9027,7 +9027,7 @@ template startArrayEnsureSize(ComponentRef cr)
+         case "integer"
+         case "boolean" then
+           let &nosub = buffer ""
+-          let size = if isSymbolicArrayVar(var) then varSizeRuntime(var) else (sizes ; separator="*")
++          let size = if isSymbolicArrayVar(var) then varSizeRuntime(var) else typeSizeRuntime(crefTypeFull(crefStripSubs(popCref(cr))))
+           '<%ty%>_array_ensure_size(&<%varAttributes(var, &nosub)%>.start, <%size%>);'
+         else ""
+     else ""
+@@ -9044,6 +9044,16 @@ template varSizeRuntime(SimVar var)
+   '(<%daeExp(simVarSizeExp(var), contextSimulationNonDiscrete, &preExp, &varDecls, &varFrees, &aux)%>)'
+ end varSizeRuntime;
+ 
++template typeSizeRuntime(DAE.Type ty)
++ "the number of elements of an array type at runtime"
++::=
++  let &preExp = buffer ""
++  let &varDecls = buffer ""
++  let &varFrees = buffer ""
++  let &aux = buffer ""
++  '(<%daeExp(typeSizeExp(ty), contextSimulationNonDiscrete, &preExp, &varDecls, &varFrees, &aux)%>)'
++end typeSizeRuntime;
++
+ template startArrayScatterEnsureSize(ComponentRef cr, Text type, Text arr)
+  "Without --simCodeScalarize the array is one VarsData entry. Its start
+   attribute may hold a single value for all elements (each), so it gets one per
+diff --git a/OMCompiler/Compiler/Template/SimCodeTV.mo b/OMCompiler/Compiler/Template/SimCodeTV.mo
+index f1e98b4ef2..5bf803d372 100644
+--- a/OMCompiler/Compiler/Template/SimCodeTV.mo
++++ b/OMCompiler/Compiler/Template/SimCodeTV.mo
+@@ -1561,6 +1561,11 @@ package SimCodeCodegenUtil
+     output DAE.Exp exp;
+   end simVarSizeExp;
+ 
++  function typeSizeExp
++    input DAE.Type ty;
++    output DAE.Exp exp;
++  end typeSizeExp;
++
+   function simVarDimExps
+     input SimCodeVar.SimVar var;
+     output list<DAE.Exp> exps;
+diff --git a/OMCompiler/SimulationRuntime/c/simulation/solver/nonlinearSystem.c b/OMCompiler/SimulationRuntime/c/simulation/solver/nonlinearSystem.c
+index 175ed6ecdf..abeed628fe 100644
+--- a/OMCompiler/SimulationRuntime/c/simulation/solver/nonlinearSystem.c
++++ b/OMCompiler/SimulationRuntime/c/simulation/solver/nonlinearSystem.c
+@@ -818,6 +818,13 @@ void printNonLinearSystemSolvingStatistics(NONLINEAR_SYSTEM_DATA* nonlinsys, enu
+  *         [ref] [data]
+  *         [ref] [nonlinsys] index of corresponding non-linear system
+  */
++/* Resizable systems can be larger than the variable list of their equation info. */
++static const char* nlsVarName(DATA* data, NONLINEAR_SYSTEM_DATA *nonlinsys, long i)
++{
++  EQUATION_INFO eqInfo = modelInfoGetEquation(&data->modelData->modelDataXml, nonlinsys->equationIndex);
++  return i < eqInfo.numVar ? eqInfo.vars[i] : "?";
++}
++
+ void printNonLinearInitialInfo(int logName, DATA* data, NONLINEAR_SYSTEM_DATA *nonlinsys)
+ {
+   long i;
+@@ -827,7 +834,7 @@ void printNonLinearInitialInfo(int logName, DATA* data, NONLINEAR_SYSTEM_DATA *n
+ 
+   for(i=0; i<nonlinsys->size; i++)
+     infoStreamPrint(logName, 0, "[%2ld] %30s  = %16.8g\t\t nom = %16.8g", i+1,
+-                    modelInfoGetEquation(&data->modelData->modelDataXml,nonlinsys->equationIndex).vars[i],
++                    nlsVarName(data, nonlinsys, i),
+                     nonlinsys->nlsx[i], nonlinsys->nominal[i]);
+   messageClose(logName);
+ }
+@@ -867,7 +874,7 @@ void printNonLinearFinishInfo(int logName, DATA* data, NONLINEAR_SYSTEM_DATA *no
+   infoStreamPrint(logName, 0, "solution values:");
+   for(i=0; i<nonlinsys->size; i++)
+     infoStreamPrint(logName, 0, "[%2ld] %30s  = %16.8g", i+1,
+-                    modelInfoGetEquation(&data->modelData->modelDataXml,nonlinsys->equationIndex).vars[i],
++                    nlsVarName(data, nonlinsys, i),
+                     nonlinsys->nlsx[i]);
+ 
+   messageClose(logName);

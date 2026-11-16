@@ -1,0 +1,106 @@
+diff --git a/OMCompiler/Compiler/NBackEnd/Classes/NBackendDAE.mo b/OMCompiler/Compiler/NBackEnd/Classes/NBackendDAE.mo
+index 9dfbc9e8b3..f8d4897bef 100644
+--- a/OMCompiler/Compiler/NBackEnd/Classes/NBackendDAE.mo
++++ b/OMCompiler/Compiler/NBackEnd/Classes/NBackendDAE.mo
+@@ -779,6 +779,9 @@ public
+         end try;
+         clock_time := System.realtimeTock(clock_idx);
+         ExecStat.execStat("[" + ClockIndexes.toString(clock_idx) + "] " + name);
++        GCExt.gcollect();
++        print("DBGMOD " + ClockIndexes.toString(clock_idx) + " " + name + " " + GCExt.profStatsStr(GCExt.getProfStats(), "", " ") + "\n");
++        System.fflush();
+         module_clocks := (name, clock_time) :: module_clocks;
+         if Flags.isSet(Flags.FAILTRACE) then
+           (varSizes, eqnSizes) := sizes(bdae);
+diff --git a/OMCompiler/Compiler/NBackEnd/Modules/3_Post/NBJacobian.mo b/OMCompiler/Compiler/NBackEnd/Modules/3_Post/NBJacobian.mo
+index 89af98a59c..ecaaf0d5c3 100644
+--- a/OMCompiler/Compiler/NBackEnd/Modules/3_Post/NBJacobian.mo
++++ b/OMCompiler/Compiler/NBackEnd/Modules/3_Post/NBJacobian.mo
+@@ -92,6 +92,8 @@ protected
+ 
+   // Util imports
+   import StringUtil;
++  import System;
++  import GCExt;
+   import PointerWeak;
+   import UnorderedMap;
+   import UnorderedSet;
+@@ -1667,9 +1669,12 @@ protected
+       end if;
+       // the inner equations of algebraic loops are needed for their dependencies
+       sparsity_comps := List.flatten(list(withInnerComps(comp) for comp in Util.getOption(strongComponents)));
++      dbgRss("before createFull " + name + " comps " + intString(listLength(sparsity_comps)));
+       fullLocal := Adjacency.Matrix.createFull(adjacencyVars, EquationPointers.fromList(
+         List.flatten(list(StrongComponent.getEquations(comp) for comp in sparsity_comps))));
++      dbgRss("after createFull");
+       sparsity := Adjacency.Matrix.fullToSparsity(fullLocal, sparsity_comps, seed_set, pder_set, diff_map, vars = SOME(adjacencyVars));
++      dbgRss("after fullToSparsity");
+     else
+       Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed because strong components are missing."});
+       fail();
+@@ -1685,6 +1690,14 @@ protected
+     ));
+   end jacobianNumeric;
+ 
++  function dbgRss
++    input String msg;
++  algorithm
++    GCExt.gcollect();
++    print("DBGRSS " + msg + " " + GCExt.profStatsStr(GCExt.getProfStats(), "", " ") + "\n");
++    System.fflush();
++  end dbgRss;
++
+   function jacobianNone
+     extends Module.jacobianInterface;
+   algorithm
+diff --git a/OMCompiler/Compiler/NBackEnd/Util/NBAdjacency.mo b/OMCompiler/Compiler/NBackEnd/Util/NBAdjacency.mo
+index 4e09f3658b..23499da416 100644
+--- a/OMCompiler/Compiler/NBackEnd/Util/NBAdjacency.mo
++++ b/OMCompiler/Compiler/NBackEnd/Util/NBAdjacency.mo
+@@ -85,6 +85,8 @@ protected
+   import NFInstNode.InstNode;
+   import Slice = NBSlice;
+   import StringUtil;
++  import System;
++  import GCExt;
+   import Vector;
+ 
+ public
+@@ -1386,6 +1388,7 @@ public
+           VariablePointers full_vars;
+           UnorderedMap<ComponentRef, EquationPointer> first_eqns = UnorderedMap.new<EquationPointer>(ComponentRef.hash, ComponentRef.isEqual);
+           UnorderedSet<ComponentRef> shared_names = UnorderedSet.new(ComponentRef.hash, ComponentRef.isEqual);
++          Integer dbg_count, dbg_total, dbg_max, dbg_rows;
+ 
+         case FULL() algorithm
+           // create the equation name -> index map
+@@ -1425,7 +1428,29 @@ public
+           //    if it is EITHER inner or result, map all deps with tmp
+           //    if it is an inner equation save the mapping to tmp name -> deps
+           //    if it is a result equation save the mapping to final name -> deps
++          dbg_count := 0;
+           for comp in comps loop
++            dbg_count := dbg_count + 1;
++            if dbg_count == listLength(comps) then
++              for kv in UnorderedMap.toList(inner_map) loop
++                if listLength(Util.tuple22(kv)) > 100 then
++                  print("DBGBIG " + ComponentRef.toString(Util.tuple21(kv)) + " (" + intString(listLength(Util.tuple22(kv))) + "): " + stringDelimitList(list(ComponentRef.toString(c) for c in Util.tuple22(kv)), ", ") + "\n");
++                end if;
++              end for;
++            end if;
++            if intMod(dbg_count, 2000) == 0 or dbg_count > 97140 then
++              GCExt.gcollect();
++              dbg_rows := 0;
++              for m in deps loop dbg_rows := dbg_rows + UnorderedMap.size(m); end for;
++              print("DBGCOMP " + intString(listLength(StrongComponent.getEquations(comp))) + " eqns, vars " + stringDelimitList(list(ComponentRef.toString(c) for c in List.firstN(StrongComponent.getVariableCrefs(comp), min(3, listLength(StrongComponent.getVariableCrefs(comp))))), ",") + " loop " + boolString(StrongComponent.isAlgebraicLoop(comp)) + "\n");
++              print("DBGHEAP row deps " + intString(dbg_rows) + " " + GCExt.profStatsStr(GCExt.getProfStats(), "", " ") + "\n");
++              dbg_total := 0; dbg_max := 0;
++              for l in UnorderedMap.valueList(inner_map) loop
++                dbg_total := dbg_total + listLength(l); dbg_max := max(dbg_max, listLength(l));
++              end for;
++              print("DBG fullToSparsity comps " + intString(dbg_count) + "/" + intString(listLength(comps)) + " inner keys " + intString(UnorderedMap.size(inner_map)) + " deps total " + intString(dbg_total) + " max " + intString(dbg_max) + " templates " + intString(UnorderedMap.size(template_map)) + " rows " + intString(listLength(eqn_names)) + "\n");
++              System.fflush();
++            end if;
+             eqns      := StrongComponent.getEquations(comp);
+             var_crefs := StrongComponent.getVariableCrefs(comp);
+ 

@@ -1,0 +1,659 @@
+diff --git a/OMCompiler/Compiler/NBackEnd/Classes/NBStrongComponent.mo b/OMCompiler/Compiler/NBackEnd/Classes/NBStrongComponent.mo
+index 912b06292a..5197c32344 100644
+--- a/OMCompiler/Compiler/NBackEnd/Classes/NBStrongComponent.mo
++++ b/OMCompiler/Compiler/NBackEnd/Classes/NBStrongComponent.mo
+@@ -75,6 +75,7 @@ protected
+   import NBVariable.{VariablePointer, VariablePointers};
+ 
+   // Util imports
++  import Flags;
+   import Pointer;
+   import Slice = NBSlice;
+   import StringUtil;
+@@ -153,8 +154,141 @@ public
+     RESIZABLE_COMPONENT, SINGLE_COMPONENT or MULTI_COMPONENT."
+     list<StrongComponent> entwined_slices                     "one entry per distinct equation (for-loop or scalar)";
+     list<tuple<Pointer<Equation>, Integer>> entwined_tpl_lst  "equation with scalar idx (0 based) - fallback scalarization";
++    Option<ResizableOrder> resizable_order                    "the call order for every size of resizable arrays";
+   end ENTWINED_COMPONENT;
+ 
++  uniontype ResizableOrder
++    "the calls of an entwined component as periods k: every slice is called with the iterator
++    value i = direction * k + offset, in the order of the period and only if i is within the
++    bounds of the slice"
++    record RESIZABLE_ORDER
++      Integer direction                       "the step of the iterators from one period to the next";
++      list<tuple<Integer, Integer>> period    "index of the slice (0 based) and offset of each call";
++      list<tuple<Integer, Integer>> bounds    "distance of the first and last iteration of each slice to the start and stop of its range";
++    end RESIZABLE_ORDER;
++
++    function toString
++      input ResizableOrder order;
++      output String str = "direction = " + intString(order.direction)
++        + ", period = " + pairsString(order.period) + ", bounds = " + pairsString(order.bounds);
++    end toString;
++
++    function pairsString
++      input list<tuple<Integer, Integer>> pairs;
++      output String str = "{" + stringDelimitList(list("(" + intString(Util.tuple21(c)) + ", " + intString(Util.tuple22(c)) + ")" for c in pairs), ", ") + "}";
++    end pairsString;
++
++    function fromCalls
++      "the order of the scalar calls as periods, if every slice is a for-equation with a single
++      iterator over a resizable range with step 1 and the calls are periodic in the iterators"
++      input list<Integer> eqn_indices "scalar equations in call order";
++      input list<StrongComponent> slices;
++      input list<Integer> slice_eqns  "the equation of each slice";
++      input Mapping mapping;
++      output Option<ResizableOrder> order = NONE();
++    protected
++      Integer n = listLength(slices);
++      UnorderedMap<Integer, Integer> pos_map = UnorderedMap.new<Integer>(Util.id, intEq);
++      array<Integer> starts = arrayCreate(n, 0), stops = arrayCreate(n, 0), offsets = arrayCreate(n, 0);
++      array<Integer> first_i = arrayCreate(n, 0), last = arrayCreate(n, 0), rank = arrayCreate(n, -1);
++      array<Boolean> seen = arrayCreate(n, false), called = arrayCreate(n, false);
++      list<tuple<Integer, Integer, Integer>> calls = {} "period, slice and iterator value";
++      list<Integer> current = {}, longest = {};
++      Integer pos = 0, k = 0, p, i, first, dir = 0, stride, prev_k = -1, prev_rank = -1;
++      Option<tuple<Integer, Integer>> o_range;
++    algorithm
++      for tpl in List.zip(slices, slice_eqns) loop
++        o_range := match Util.tuple21(tpl)
++          local
++            StrongComponent slice;
++          case slice as RESIZABLE_COMPONENT() then range(slice.eqn);
++          case slice as SLICED_COMPONENT()    then range(slice.eqn);
++          case slice as GENERIC_COMPONENT()   then range(slice.eqn);
++          else NONE();
++        end match;
++        if isNone(o_range) then return; end if;
++        SOME((first, i)) := o_range;
++        starts[pos + 1] := first;
++        stops[pos + 1] := i;
++        UnorderedMap.add(Util.tuple22(tpl), pos, pos_map);
++        pos := pos + 1;
++      end for;
++
++      // a new period starts with the second call of a slice
++      for idx in eqn_indices loop
++        p := UnorderedMap.getSafe(mapping.eqn_StA[idx], pos_map, sourceInfo());
++        if seen[p + 1] then
++          if listLength(current) > listLength(longest) then longest := listReverse(current); end if;
++          for j in current loop seen[j + 1] := false; end for;
++          current := {};
++          k := k + 1;
++        end if;
++        seen[p + 1] := true;
++        current := p :: current;
++        (first, _) := mapping.eqn_AtS[mapping.eqn_StA[idx]];
++        i := starts[p + 1] + idx - first;
++        if called[p + 1] then
++          if dir == 0 then dir := i - last[p + 1]; end if;
++          if dir == 0 or i - last[p + 1] <> dir then return; end if;
++        else
++          first_i[p + 1] := i;
++        end if;
++        called[p + 1] := true;
++        last[p + 1] := i;
++        calls := (k, p, i) :: calls;
++      end for;
++      if listLength(current) > listLength(longest) then longest := listReverse(current); end if;
++      if listLength(longest) <> n then return; end if;
++      if dir == 0 then dir := 1; end if;
++
++      // every period follows the order of a full one and the offsets are constant
++      pos := 0;
++      for j in longest loop rank[j + 1] := pos; pos := pos + 1; end for;
++      seen := arrayCreate(n, false);
++      for c in listReverse(calls) loop
++        (k, p, i) := c;
++        if k == prev_k and rank[p + 1] <= prev_rank then return; end if;
++        (prev_k, prev_rank) := (k, rank[p + 1]);
++        if not seen[p + 1] then
++          offsets[p + 1] := i - dir * k;
++          seen[p + 1] := true;
++        elseif offsets[p + 1] <> i - dir * k then
++          return;
++        end if;
++      end for;
++
++      // iterations closer to a bound than the stride are kept apart by the offset
++      stride := intAbs(dir);
++      order := SOME(RESIZABLE_ORDER(dir, list((j, offsets[j + 1]) for j in longest), list(
++        (cutBelow(min(first_i[j], last[j]) - starts[j], stride), cutBelow(stops[j] - max(first_i[j], last[j]), stride)) for j in 1:n)));
++    end fromCalls;
++
++    function cutBelow
++      input Integer d;
++      input Integer stride;
++      output Integer r = if d < stride then 0 else d;
++    end cutBelow;
++
++    function range
++      "the start and stop (at the analysis sizes) of the only iterator of a for-equation over a
++      resizable range with step 1"
++      input Slice<EquationPointer> slice;
++      output Option<tuple<Integer, Integer>> r = NONE();
++    protected
++      Equation eqn = Pointer.access(Slice.getT(slice));
++      Iterator iter;
++    algorithm
++      r := match eqn
++        local
++          Expression range;
++        case Equation.FOR_EQUATION(iter = iter as Iterator.SINGLE(range = range as Expression.RANGE(start = Expression.INTEGER()), map = NONE()))
++          guard(Iterator.isResizable(iter) and (match range.step case NONE() then true; case SOME(Expression.INTEGER(1)) then true; else false; end match))
++          then SOME((Expression.integerValue(range.start), Expression.integerValue(range.start) + Iterator.size(iter, true) - 1));
++        else NONE();
++      end match;
++    end range;
++  end ResizableOrder;
++
+   record ALGEBRAIC_LOOP
+     "component for equations that have to be solved as a system."
+     Integer idx;
+@@ -217,6 +351,9 @@ public
+       case ENTWINED_COMPONENT() algorithm
+         str := StringUtil.headline_3("BLOCK" + indexStr + ": Entwined Component (status = Solve.EXPLICIT, size = " + intString(s) + ")");
+         str := str + "call order: " + List.toString(list(Equation.getEqnName(Util.tuple21(e)) for e in comp.entwined_tpl_lst), ComponentRef.toString, List.Style.FLAT_CURLY_SHORT) + "\n";
++        if isSome(comp.resizable_order) then
++          str := str + "resizable order: " + ResizableOrder.toString(Util.getOption(comp.resizable_order)) + "\n";
++        end if;
+         str := str + List.toString(comp.entwined_slices, function toString(index = -2), List.Style.NONE);
+       then str;
+ 
+@@ -457,6 +594,8 @@ public
+     Integer eqn_arr_idx, var_arr_idx;
+     Slice.IntLst scal_indices;
+     list<StrongComponent> entwined_slices = {};
++    list<Integer> slice_eqns = {};
++    Option<ResizableOrder> resizable_order = NONE();
+     list<tuple<Pointer<Equation>, Integer>> entwined_tpl_lst;
+   algorithm
+     // collect individual buckets again
+@@ -484,12 +623,22 @@ public
+       else
+         entwined_slices := createPseudoScalar(scal_indices, eqn_to_var, mapping, vars, eqns) :: entwined_slices;
+       end if;
++      slice_eqns := eqn_arr_idx :: slice_eqns;
+     end for;
+ 
+     // create scalar list for fallback
+     entwined_tpl_lst := list((EquationPointers.getEqnAt(eqns, mapping.eqn_StA[idx]), idx) for idx in eqn_indices);
+ 
+-    entwined := ENTWINED_COMPONENT(entwined_slices, entwined_tpl_lst);
++    if Flags.getConfigBool(Flags.RESIZABLE_ARRAYS) then
++      resizable_order := ResizableOrder.fromCalls(eqn_indices, entwined_slices, slice_eqns, mapping);
++      // the order of the scalar calls only holds for the analysis sizes
++      if isNone(resizable_order) and List.any(list(EquationPointers.getEqnAt(eqns, e) for e in slice_eqns), Equation.isResizable) then
++        Error.addMessage(Error.INTERNAL_ERROR, {getInstanceName() + " failed because the order of the entwined equations could not be resolved for every size of the resizable arrays:\n"
++          + stringDelimitList(list(Equation.pointerToString(EquationPointers.getEqnAt(eqns, e), "\t") for e in slice_eqns), "\n")});
++        fail();
++      end if;
++    end if;
++    entwined := ENTWINED_COMPONENT(entwined_slices, entwined_tpl_lst, resizable_order);
+   end createPseudoEntwined;
+ 
+   function createAlias
+diff --git a/OMCompiler/Compiler/NBackEnd/Modules/3_Post/NBSolve.mo b/OMCompiler/Compiler/NBackEnd/Modules/3_Post/NBSolve.mo
+index 50bdcd2440..eb8cd03522 100644
+--- a/OMCompiler/Compiler/NBackEnd/Modules/3_Post/NBSolve.mo
++++ b/OMCompiler/Compiler/NBackEnd/Modules/3_Post/NBSolve.mo
+@@ -405,7 +405,22 @@ public
+         /* for now handle all entwined equations generically and don't try to solve */
+         case StrongComponent.ENTWINED_COMPONENT() algorithm
+           for slice in comp.entwined_slices loop
+-            (generic_comp, solve_status, implicit_index) := solveGenericEquation(slice, funcMap, kind, implicit_index, slicing_map, varData, eqData);
++            generic_comp := slice;
++            if isSome(comp.resizable_order) then
++              // the order of the iterations is given by the entwined component
++              () := match generic_comp
++                case StrongComponent.RESIZABLE_COMPONENT() algorithm
++                  (eqn, solve_status, implicit_index, _) := solveEquation(Pointer.access(Slice.getT(generic_comp.eqn)), generic_comp.var_cref, funcMap, kind, implicit_index, slicing_map, varData, eqData);
++                  generic_comp.eqn := Slice.SLICE(Pointer.create(eqn), generic_comp.eqn.indices);
++                  generic_comp.status := solve_status;
++                then ();
++                else algorithm
++                  (generic_comp, solve_status, implicit_index) := solveGenericEquation(slice, funcMap, kind, implicit_index, slicing_map, varData, eqData);
++                then ();
++              end match;
++            else
++              (generic_comp, solve_status, implicit_index) := solveGenericEquation(slice, funcMap, kind, implicit_index, slicing_map, varData, eqData);
++            end if;
+             // make loop on any solve_status != explicit
+             entwined_slices := generic_comp :: entwined_slices;
+           end for;
+diff --git a/OMCompiler/Compiler/NSimCode/NSimStrongComponent.mo b/OMCompiler/Compiler/NSimCode/NSimStrongComponent.mo
+index 9c3c2d7c2b..66f5e6dc6e 100644
+--- a/OMCompiler/Compiler/NSimCode/NSimStrongComponent.mo
++++ b/OMCompiler/Compiler/NSimCode/NSimStrongComponent.mo
+@@ -187,10 +187,16 @@ public
+     end GENERIC_ASSIGN;
+ 
+     record ENTWINED_ASSIGN
+-      "entwined generic assignments calling for loop body functions with an index list and a call order."
++      "entwined generic assignments calling for loop body functions with an index list and a call order.
++      with resizable arrays the call order is one period k and each call gets the iterator value
++      direction * k + offset, see StrongComponent.ResizableOrder."
+       Integer index;
+       list<Integer> call_order;
+       list<Block> single_calls;
++      Integer direction           "0 for a fixed call order";
++      list<Integer> offsets;
++      list<Integer> start_shifts  "per single call: its first iteration is the start of its range plus this";
++      list<Integer> stop_shifts   "per single call: its last iteration is the stop of its range minus this";
+       DAE.ElementSource source;
+       EquationAttributes attr;
+     end ENTWINED_ASSIGN;
+@@ -858,7 +864,9 @@ public
+           Block single_call;
+           list<Block> single_calls = {};
+           UnorderedMap<ComponentRef, Integer> entwined_index_map;
+-          list<Integer> call_order = {};
++          list<Integer> call_order = {}, offsets = {}, start_shifts = {}, stop_shifts = {};
++          Integer direction = 0;
++          list<tuple<Integer, Integer>> period, bounds;
+           Identifier ident;
+           list<SimIterator> iters;
+ 
+@@ -943,18 +951,31 @@ public
+           // create index list calls for entwined equations (position-based dispatch)
+           entwined_index_map := UnorderedMap.new<Integer>(ComponentRef.hash, ComponentRef.isEqual);
+           for slice in comp.entwined_slices loop
+-            (single_call, simCodeIndices, _) := fromStrongComponent(slice, simCodeIndices, kind, simcode_map, equation_map, entwined = true);
++            if isSome(comp.resizable_order) then
++              // every slice is called with the values of the iterator of its equation
++              (single_call, simCodeIndices) := resizableEntwinedCall(slice, simCodeIndices, equation_map);
++            else
++              (single_call, simCodeIndices, _) := fromStrongComponent(slice, simCodeIndices, kind, simcode_map, equation_map, entwined = true);
++            end if;
+             // position = current list length before prepend (0-based, stable after reversal below)
+             UnorderedMap.add(getEntwinedEquationName(slice), listLength(single_calls), entwined_index_map);
+             single_calls := single_call :: single_calls;
+           end for;
+           single_calls := listReverse(single_calls);
+-          for tpl in listReverse(comp.entwined_tpl_lst) loop
+-            (eqn_ptr, _) := tpl;
+-            call_order := UnorderedMap.getSafe(Equation.getEqnName(eqn_ptr), entwined_index_map, sourceInfo()) :: call_order;
+-          end for;
++          if isSome(comp.resizable_order) then
++            SOME(StrongComponent.RESIZABLE_ORDER(direction = direction, period = period, bounds = bounds)) := comp.resizable_order;
++            call_order := list(Util.tuple21(c) for c in period);
++            offsets := list(Util.tuple22(c) for c in period);
++            start_shifts := list(Util.tuple21(c) for c in bounds);
++            stop_shifts := list(Util.tuple22(c) for c in bounds);
++          else
++            for tpl in listReverse(comp.entwined_tpl_lst) loop
++              (eqn_ptr, _) := tpl;
++              call_order := UnorderedMap.getSafe(Equation.getEqnName(eqn_ptr), entwined_index_map, sourceInfo()) :: call_order;
++            end for;
++          end if;
+           // todo: eq attributes and source
+-          tmp := ENTWINED_ASSIGN(simCodeIndices.equationIndex, call_order, single_calls, DAE.emptyElementSource, EquationAttributes.default(EquationKind.CONTINUOUS, false));
++          tmp := ENTWINED_ASSIGN(simCodeIndices.equationIndex, call_order, single_calls, direction, offsets, start_shifts, stop_shifts, DAE.emptyElementSource, EquationAttributes.default(EquationKind.CONTINUOUS, false));
+           simCodeIndices.equationIndex := simCodeIndices.equationIndex + 1;
+         then (tmp, getIndex(tmp));
+ 
+@@ -1074,6 +1095,35 @@ public
+       end match;
+     end fromStrongComponent;
+ 
++    function resizableEntwinedCall
++      "the call of the body of the for-equation of a slice of a resizable entwined component"
++      input StrongComponent slice;
++      output Block blck;
++      input output SimCodeIndices simCodeIndices;
++      input UnorderedMap<ComponentRef, Block> equation_map;
++    protected
++      Slice<EquationPointer> eqn_slice;
++      ComponentRef var_cref;
++      EquationPointer eqn_ptr;
++      Equation eqn;
++      Integer generic_call_index;
++    algorithm
++      (eqn_slice, var_cref) := match slice
++        case StrongComponent.RESIZABLE_COMPONENT() then (slice.eqn, slice.var_cref);
++        case StrongComponent.GENERIC_COMPONENT()   then (slice.eqn, slice.var_cref);
++        case StrongComponent.SLICED_COMPONENT()    then (slice.eqn, slice.var_cref);
++        else algorithm
++          Error.addMessage(Error.INTERNAL_ERROR,{getInstanceName() + " failed for:\n" + StrongComponent.toString(slice)});
++        then fail();
++      end match;
++      eqn_ptr := Slice.getT(eqn_slice);
++      eqn := Pointer.access(eqn_ptr);
++      generic_call_index := UnorderedMap.tryAdd(Identifier.IDENTIFIER(eqn_ptr, var_cref, true), UnorderedMap.size(simCodeIndices.generic_call_map), simCodeIndices.generic_call_map);
++      blck := RESIZABLE_ASSIGN(simCodeIndices.equationIndex, generic_call_index, SimIterator.fromIterator(Equation.getForIterator(eqn)), Equation.getSource(eqn), Equation.getAttributes(eqn));
++      UnorderedMap.add(Equation.getEqnName(eqn_ptr), blck, equation_map);
++      simCodeIndices.equationIndex := simCodeIndices.equationIndex + 1;
++    end resizableEntwinedCall;
++
+     function restrictedResizableIterator
+       "the iterator of a slice of a for-equation with a scalar body over a
+        resizable range, restricted to the iterations of the slice (whole if empty)"
+@@ -1478,7 +1528,7 @@ public
+         case ARRAY_ASSIGN()     then OldSimCode.SES_ARRAY_CALL_ASSIGN(blck.index, Expression.toDAE(blck.lhs), Expression.toDAE(blck.rhs), blck.source, EquationAttributes.convert(blck.attr));
+         case RESIZABLE_ASSIGN() then OldSimCode.SES_RESIZABLE_ASSIGN(blck.index, blck.call_index, list(SimIterator.convert(it) for it in blck.iters), blck.source, EquationAttributes.convert(blck.attr));
+         case GENERIC_ASSIGN()   then OldSimCode.SES_GENERIC_ASSIGN(blck.index, blck.call_index, blck.scal_indices, blck.source, EquationAttributes.convert(blck.attr));
+-        case ENTWINED_ASSIGN()  then OldSimCode.SES_ENTWINED_ASSIGN(blck.index, blck.call_order, list(convert(single_call) for single_call in blck.single_calls), blck.source, EquationAttributes.convert(blck.attr));
++        case ENTWINED_ASSIGN()  then OldSimCode.SES_ENTWINED_ASSIGN(blck.index, blck.call_order, list(convert(single_call) for single_call in blck.single_calls), blck.direction, blck.offsets, blck.start_shifts, blck.stop_shifts, blck.source, EquationAttributes.convert(blck.attr));
+         case IF() algorithm
+           for branch in blck.branches loop
+             (exp, blcks) := branch;
+diff --git a/OMCompiler/Compiler/OpenModelica.rs/openmodelica_codegen_wasm_jit/src/CodegenWasmJit.rs b/OMCompiler/Compiler/OpenModelica.rs/openmodelica_codegen_wasm_jit/src/CodegenWasmJit.rs
+index 70448bbbcb..e02f52e745 100644
+--- a/OMCompiler/Compiler/OpenModelica.rs/openmodelica_codegen_wasm_jit/src/CodegenWasmJit.rs
++++ b/OMCompiler/Compiler/OpenModelica.rs/openmodelica_codegen_wasm_jit/src/CodegenWasmJit.rs
+@@ -63,7 +63,7 @@ use crate::CodegenWasmJitFunctions::{
+     NLS_HIST_GLOBAL, NlsJob, NlsResidual, NlsResiduals, ProfPlan, RT_BUILTINS, ScatterGroup, SimCtx, SimSlot, SlotMap,
+     StartExps, StartSlot, VarTable, WTy, WTyVal, backup_known_outputs, compile_function, compile_linear_system,
+     compile_linear_system_analytic, compile_linear_system_analytic_csc, compile_linear_system_symbolic,
+-    emit_entwined_assign, emit_generic_assign, emit_nls_jac_body, emit_nls_jac_csc_body, emit_nls_jac_dyn_body,
++    emit_entwined_assign, emit_generic_assign, emit_resizable_entwined_assign, emit_nls_jac_body, emit_nls_jac_csc_body, emit_nls_jac_dyn_body,
+     emit_nls_load_body, emit_nls_residual_body, emit_nls_residual_epilogue, emit_nls_residual_prologue,
+     emit_nls_residual_store, emit_resizable_assign, emit_sim_const_stores, emit_solve_nls_call, external_general_why,
+     external_import_sig, external_known, flat_sim_key, function_signature, nls_residuals_all_scalar, nls_use_sparse,
+diff --git a/OMCompiler/Compiler/OpenModelica.rs/openmodelica_codegen_wasm_jit/src/CodegenWasmJit/lower_eq.rs b/OMCompiler/Compiler/OpenModelica.rs/openmodelica_codegen_wasm_jit/src/CodegenWasmJit/lower_eq.rs
+index 39c680e693..696555d146 100644
+--- a/OMCompiler/Compiler/OpenModelica.rs/openmodelica_codegen_wasm_jit/src/CodegenWasmJit/lower_eq.rs
++++ b/OMCompiler/Compiler/OpenModelica.rs/openmodelica_codegen_wasm_jit/src/CodegenWasmJit/lower_eq.rs
+@@ -50,8 +50,18 @@ pub(super) fn lower_equation_inner(
+         E::SES_ENTWINED_ASSIGN {
+             call_order,
+             single_calls,
++            direction: 0,
+             ..
+         } => emit_entwined_assign(ctx, call_order, single_calls, eq_index),
++        E::SES_ENTWINED_ASSIGN {
++            call_order,
++            single_calls,
++            direction,
++            offsets,
++            start_shifts,
++            stop_shifts,
++            ..
++        } => emit_resizable_entwined_assign(ctx, call_order, single_calls, *direction, offsets, start_shifts, stop_shifts),
+         E::SES_LINEAR {
+             lSystem,
+             alternativeTearing: Some(at),
+diff --git a/OMCompiler/Compiler/OpenModelica.rs/openmodelica_codegen_wasm_jit/src/CodegenWasmJitFunctions.rs b/OMCompiler/Compiler/OpenModelica.rs/openmodelica_codegen_wasm_jit/src/CodegenWasmJitFunctions.rs
+index 80458f0ad9..d6ebef79b2 100644
+--- a/OMCompiler/Compiler/OpenModelica.rs/openmodelica_codegen_wasm_jit/src/CodegenWasmJitFunctions.rs
++++ b/OMCompiler/Compiler/OpenModelica.rs/openmodelica_codegen_wasm_jit/src/CodegenWasmJitFunctions.rs
+@@ -248,7 +248,7 @@ pub(crate) mod shared_lits;
+ #[path = "CodegenWasmJitFunctions/generic_calls.rs"]
+ mod generic_calls;
+ pub(crate) use generic_calls::{
+-    emit_entwined_assign, emit_generic_assign, emit_index_list_loop, emit_resizable_assign,
++    emit_entwined_assign, emit_generic_assign, emit_resizable_entwined_assign, emit_index_list_loop, emit_resizable_assign,
+ };
+ 
+ #[path = "CodegenWasmJitFunctions/sim_systems.rs"]
+diff --git a/OMCompiler/Compiler/OpenModelica.rs/openmodelica_codegen_wasm_jit/src/CodegenWasmJitFunctions/generic_calls.rs b/OMCompiler/Compiler/OpenModelica.rs/openmodelica_codegen_wasm_jit/src/CodegenWasmJitFunctions/generic_calls.rs
+index 9a2bb78475..e24f5b629b 100644
+--- a/OMCompiler/Compiler/OpenModelica.rs/openmodelica_codegen_wasm_jit/src/CodegenWasmJitFunctions/generic_calls.rs
++++ b/OMCompiler/Compiler/OpenModelica.rs/openmodelica_codegen_wasm_jit/src/CodegenWasmJitFunctions/generic_calls.rs
+@@ -72,6 +72,141 @@ pub(crate) fn emit_entwined_assign(
+     Ok(())
+ }
+ 
++/// `SES_ENTWINED_ASSIGN` with a `direction`: `call_order` is one period `k` and
++/// each call runs its equation's body for `i = direction * k + offset` if `i` is
++/// within its bounds, like `CodegenC.tpl:equationEntwinedAssign`.
++pub(crate) fn emit_resizable_entwined_assign(
++    ctx: &mut FnCtx,
++    call_order: &List<i32>,
++    single_calls: &List<metamodelica::Ref<SimCode::SimEqSystem>>,
++    direction: i32,
++    offsets: &List<i32>,
++    start_shifts: &List<i32>,
++    stop_shifts: &List<i32>,
++) -> Result<()> {
++    use we::Instruction as I;
++    use SimCode::SimEqSystem as E;
++    let start_shifts: Vec<i32> = (&**start_shifts).into_iter().copied().collect();
++    let stop_shifts: Vec<i32> = (&**stop_shifts).into_iter().copied().collect();
++    // per single call: its body, iterator name and the locals of its bounds
++    let mut calls = Vec::new();
++    for (c, eq) in (&**single_calls).into_iter().enumerate() {
++        let E::SES_RESIZABLE_ASSIGN { call_index, iters, .. } = &**eq else {
++            return Err("CodegenWasmJit: resizable entwined call is no resizable assignment");
++        };
++        let iters: Vec<&BackendDAE::SimIterator> = (&**iters).into_iter().collect();
++        let [BackendDAE::SimIterator::SIM_ITERATOR_RANGE { name, start, stop, .. }] = iters.as_slice() else {
++            return Err("CodegenWasmJit: resizable entwined call needs a single range iterator");
++        };
++        let lo = ctx.alloc_temp(WTy::I32);
++        let hi = ctx.alloc_temp(WTy::I32);
++        let w = compile_exp(ctx, start)?;
++        coerce(ctx, w, WTy::I32);
++        ctx.emit(I::I32Const(*start_shifts.get(c).ok_or("CodegenWasmJit: missing entwined start shift")?));
++        ctx.emit(I::I32Add);
++        ctx.emit(I::LocalSet(lo));
++        let w = compile_exp(ctx, stop)?;
++        coerce(ctx, w, WTy::I32);
++        ctx.emit(I::I32Const(*stop_shifts.get(c).ok_or("CodegenWasmJit: missing entwined stop shift")?));
++        ctx.emit(I::I32Sub);
++        ctx.emit(I::LocalSet(hi));
++        calls.push((lookup_call(ctx, *call_index)?, (*name).clone(), lo, hi));
++    }
++    let period: Vec<(usize, i32)> = (&**call_order)
++        .into_iter()
++        .zip((&**offsets).into_iter())
++        .map(|(c, o)| usize::try_from(*c).map(|c| (c, *o)))
++        .collect::<std::result::Result<_, _>>()
++        .map_err(|_| "CodegenWasmJit: negative entwined call index")?;
++    if period.iter().any(|(c, _)| *c >= calls.len()) {
++        return Err("CodegenWasmJit: entwined call order names a missing call");
++    }
++
++    // the periods k_lo..k_hi cover every iteration, the calls check their bounds
++    let k_lo = ctx.alloc_temp(WTy::I32);
++    let k_hi = ctx.alloc_temp(WTy::I32);
++    let a = ctx.alloc_temp(WTy::I32);
++    let b = ctx.alloc_temp(WTy::I32);
++    let m = ctx.alloc_temp(WTy::I32);
++    ctx.emit(I::I32Const(i32::MAX));
++    ctx.emit(I::LocalSet(k_lo));
++    ctx.emit(I::I32Const(i32::MIN));
++    ctx.emit(I::LocalSet(k_hi));
++    for (c, o) in &period {
++        let (_, _, lo, hi) = &calls[*c];
++        ctx.emit(I::LocalGet(*lo));
++        ctx.emit(I::LocalGet(*hi));
++        ctx.emit(I::I32LeS);
++        ctx.emit(I::If(we::BlockType::Empty));
++        for (bound, local) in [(*lo, a), (*hi, b)] {
++            ctx.emit(I::LocalGet(bound));
++            ctx.emit(I::I32Const(*o));
++            ctx.emit(I::I32Sub);
++            ctx.emit(I::I32Const(direction));
++            ctx.emit(I::I32DivS);
++            ctx.emit(I::LocalSet(local));
++        }
++        // k_lo = min(k_lo, min(a, b) - 1), k_hi = max(k_hi, max(a, b) + 1)
++        for (target, less, delta) in [(k_lo, true, -1), (k_hi, false, 1)] {
++            let cmp = || if less { I::I32LtS } else { I::I32GtS };
++            ctx.emit(I::LocalGet(a));
++            ctx.emit(I::LocalGet(b));
++            ctx.emit(I::LocalGet(a));
++            ctx.emit(I::LocalGet(b));
++            ctx.emit(cmp());
++            ctx.emit(I::Select);
++            ctx.emit(I::I32Const(delta));
++            ctx.emit(I::I32Add);
++            ctx.emit(I::LocalSet(m));
++            ctx.emit(I::LocalGet(m));
++            ctx.emit(I::LocalGet(target));
++            ctx.emit(I::LocalGet(m));
++            ctx.emit(I::LocalGet(target));
++            ctx.emit(cmp());
++            ctx.emit(I::Select);
++            ctx.emit(I::LocalSet(target));
++        }
++        ctx.emit(I::End);
++    }
++
++    let k = k_lo;
++    let it = ctx.alloc_temp(WTy::I32);
++    ctx.emit(I::Block(we::BlockType::Empty));
++    ctx.emit(I::Loop(we::BlockType::Empty));
++    ctx.emit(I::LocalGet(k));
++    ctx.emit(I::LocalGet(k_hi));
++    ctx.emit(I::I32GtS);
++    ctx.emit(I::BrIf(1));
++    for (c, o) in &period {
++        let (call, name, lo, hi) = &calls[*c];
++        ctx.emit(I::LocalGet(k));
++        ctx.emit(I::I32Const(direction));
++        ctx.emit(I::I32Mul);
++        ctx.emit(I::I32Const(*o));
++        ctx.emit(I::I32Add);
++        ctx.emit(I::LocalTee(it));
++        ctx.emit(I::LocalGet(*lo));
++        ctx.emit(I::I32GeS);
++        ctx.emit(I::LocalGet(it));
++        ctx.emit(I::LocalGet(*hi));
++        ctx.emit(I::I32LeS);
++        ctx.emit(I::I32And);
++        ctx.emit(I::If(we::BlockType::Empty));
++        let bound = bind_iter(ctx, name, it, SigTy::Int)?;
++        emit_call_body(ctx, call)?;
++        unbind_iter(ctx, bound);
++        ctx.emit(I::End);
++    }
++    ctx.emit(I::LocalGet(k));
++    ctx.emit(I::I32Const(1));
++    ctx.emit(I::I32Add);
++    ctx.emit(I::LocalSet(k));
++    ctx.emit(I::Br(0));
++    ctx.emit(I::End); // loop
++    ctx.emit(I::End); // block
++    Ok(())
++}
++
+ fn lookup_call(ctx: &FnCtx, call_index: i32) -> Result<SimCode::SimGenericCall> {
+     ctx.sim()?
+         .generic_calls
+diff --git a/OMCompiler/Compiler/SimCode/SimCode.mo b/OMCompiler/Compiler/SimCode/SimCode.mo
+index 3569d11758..55ae17f147 100644
+--- a/OMCompiler/Compiler/SimCode/SimCode.mo
++++ b/OMCompiler/Compiler/SimCode/SimCode.mo
+@@ -478,6 +478,10 @@ uniontype SimEqSystem
+     Integer index;
+     list<Integer> call_order;
+     list<SimEqSystem> single_calls;
++    Integer direction "0 for a fixed call order, otherwise call_order is a period with the iterator offsets";
++    list<Integer> offsets;
++    list<Integer> start_shifts "per single call: its first iteration is the start of its range plus this";
++    list<Integer> stop_shifts "per single call: its last iteration is the stop of its range minus this";
+     DAE.ElementSource source;
+     BackendDAE.EquationAttributes eqAttr;
+   end SES_ENTWINED_ASSIGN;
+diff --git a/OMCompiler/Compiler/Template/CodegenC.tpl b/OMCompiler/Compiler/Template/CodegenC.tpl
+index 1ac9b9c4f5..f7e29d4a23 100644
+--- a/OMCompiler/Compiler/Template/CodegenC.tpl
++++ b/OMCompiler/Compiler/Template/CodegenC.tpl
+@@ -8551,7 +8572,7 @@ template equationEntwinedAssign(SimEqSystem eq, Context context,
+ <%modelicaLine(eqInfo(eq))%>
+ <%match eq
+ 
+-case eqn as SES_ENTWINED_ASSIGN() then
++case eqn as SES_ENTWINED_ASSIGN(direction = 0) then
+   let call_num = listLength(single_calls)
+   let call_order_len = listLength(call_order)
+   <<
+@@ -8569,11 +8590,67 @@ case eqn as SES_ENTWINED_ASSIGN() then
+     }
+   }
+   >>
++case eqn as SES_ENTWINED_ASSIGN() then
++  let &preExp = buffer ""
++  let ranges = (eqn.single_calls |> call hasindex i0 => entwinedRange(call, i0, listGet(eqn.start_shifts, intAdd(i0, 1)), listGet(eqn.stop_shifts, intAdd(i0, 1)), context, &preExp, &varDecls, &varFrees, &auxFunction); separator="\n")
++  let periods = (eqn.call_order |> c hasindex i0 => entwinedPeriods(c, listGet(eqn.offsets, intAdd(i0, 1)), eqn.direction); separator="\n")
++  let calls = (eqn.call_order |> c hasindex i0 => entwinedResizableCall(listGet(eqn.single_calls, intAdd(c, 1)), c, listGet(eqn.offsets, intAdd(i0, 1)), eqn.direction, context); separator="\n")
++  <<
++  <%preExp%>
++  <%ranges%>
++  modelica_integer k_lo = 0, k_hi = -1, i_;
++  <%periods%>
++  for(modelica_integer k_ = k_lo; k_ <= k_hi; k_++)
++  {
++    <%calls%>
++  }
++  >>
+ %>
+ <%endModelicaLine()%>
+ >>
+ end equationEntwinedAssign;
+ 
++template entwinedRange(SimEqSystem eq, Integer i0, Integer start_shift, Integer stop_shift, Context context, Text &preExp, Text &varDecls, Text &varFrees, Text &auxFunction)
++ "the first and last iteration of a resizable entwined call at runtime"
++::=
++match eq
++case SES_RESIZABLE_ASSIGN(iters = {SIM_ITERATOR_RANGE(start = start, stop = stop)}) then
++  let start_ = daeExp(start, context, &preExp, &varDecls, &varFrees, &auxFunction)
++  let stop_ = daeExp(stop, context, &preExp, &varDecls, &varFrees, &auxFunction)
++  'const modelica_integer lo_<%i0%> = (<%start_%>) + <%start_shift%>, hi_<%i0%> = (<%stop_%>) - <%stop_shift%>;'
++else
++  error(sourceInfo(), 'entwinedRange: unhandled equation type')
++end entwinedRange;
++
++template entwinedPeriods(Integer c, Integer offset, Integer direction)
++ "widens the periods k_lo:k_hi to every iteration of call c, the calls check their bounds"
++::=
++<<
++if(lo_<%c%> <= hi_<%c%>) {
++  modelica_integer a_ = (lo_<%c%> - (<%offset%>))/(<%direction%>), b_ = (hi_<%c%> - (<%offset%>))/(<%direction%>);
++  if(a_ > b_) { modelica_integer t_ = a_; a_ = b_; b_ = t_; }
++  a_--; b_++;
++  if(k_lo > k_hi) { k_lo = a_; k_hi = b_; }
++  else { if(a_ < k_lo) k_lo = a_; if(b_ > k_hi) k_hi = b_; }
++}
++>>
++end entwinedPeriods;
++
++template entwinedResizableCall(SimEqSystem eq, Integer c, Integer offset, Integer direction, Context context)
++ "calls a resizable entwined equation for period k_ if the iteration exists"
++::=
++match eq
++case SES_RESIZABLE_ASSIGN() then
++  let jac = match context case JACOBIAN_CONTEXT() then ", jacobian" else ""
++  let sub_name = match context case JACOBIAN_CONTEXT(name = jac_name) then 'jac_<%jac_name%>_' else ""
++  <<
++  i_ = <%direction%>*k_ + (<%offset%>);
++  if(i_ >= lo_<%c%> && i_ <= hi_<%c%>) genericCall_<%sub_name%><%call_index%>(data, threadData<%jac%>, equationIndexes, i_);
++  >>
++else
++  error(sourceInfo(), 'entwinedResizableCall: unhandled equation type')
++end entwinedResizableCall;
++
+ template entwinedSingleCallIndices(SimEqSystem eq, Context context,
+                                  Text &varDecls, Text &varFrees, Text &auxFunction, String modelNamePrefix)
+ ::=
+diff --git a/OMCompiler/Compiler/Template/SimCodeTV.mo b/OMCompiler/Compiler/Template/SimCodeTV.mo
+index f1e98b4ef2..3a88373fc9 100644
+--- a/OMCompiler/Compiler/Template/SimCodeTV.mo
++++ b/OMCompiler/Compiler/Template/SimCodeTV.mo
+@@ -713,6 +713,10 @@ end SparsityRow;
+       Integer index;
+       list<Integer> call_order;
+       list<SimEqSystem> single_calls;
++      Integer direction;
++      list<Integer> offsets;
++      list<Integer> start_shifts "per single call: its first iteration is the start of its range plus this";
++      list<Integer> stop_shifts "per single call: its last iteration is the stop of its range minus this";
+       DAE.ElementSource source;
+       BackendDAE.EquationAttributes eqAttr;
+     end SES_ENTWINED_ASSIGN;
+diff --git a/testsuite/simulation/modelica/NBackend/array_handling/Makefile b/testsuite/simulation/modelica/NBackend/array_handling/Makefile
+index a7909ac45c..1703fbbaed 100644
+--- a/testsuite/simulation/modelica/NBackend/array_handling/Makefile
++++ b/testsuite/simulation/modelica/NBackend/array_handling/Makefile
+@@ -30,6 +30,7 @@ arrayConnectOutside.mos \
+ mixedDependencyFrames.mos \
+ arrayConnectRooted.mos \
+ entwinedOrder.mos \
++entwinedOrderResizable.mos \
+ resizableOverride.mos \
+ resizableOverrideDerived.mos \
+ resizableAliasStart.mos \

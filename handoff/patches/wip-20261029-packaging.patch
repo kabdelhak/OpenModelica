@@ -1,0 +1,1256 @@
+diff --git a/OMCompiler/3rdParty b/OMCompiler/3rdParty
+--- a/OMCompiler/3rdParty
++++ b/OMCompiler/3rdParty
+@@ -1 +1 @@
+-Subproject commit ae7e482a88906b418d8ad57a5d8a804f33eb81fa
++Subproject commit ae7e482a88906b418d8ad57a5d8a804f33eb81fa-dirty
+diff --git a/OMCompiler/Compiler/NBackEnd/Classes/NBVariable.mo b/OMCompiler/Compiler/NBackEnd/Classes/NBVariable.mo
+index f924459359..c616180fb9 100644
+--- a/OMCompiler/Compiler/NBackEnd/Classes/NBVariable.mo
++++ b/OMCompiler/Compiler/NBackEnd/Classes/NBVariable.mo
+@@ -1951,23 +1951,26 @@ function isJacobianResultVar
+     Expression binding;
+     function isEvaluable
+       input Expression exp;
++      input Boolean resizable;
+       output Boolean b;
+     protected
+       Expression new_exp;
+     algorithm
+       b := Expression.isLiteralXML(exp);
+-      if not b then
++      if not b or (resizable and not Expression.isLiteral(exp)) then
+         // try to extract literal from array constructor (use dummy map, there should not be any new iterators)
+         (_, new_exp) := Iterator.extract(exp);
+         new_exp := SimplifyExp.simplifyDump(new_exp, true, getInstanceName());
+-        b := Expression.isLiteralXML(Ceval.tryEvalExp(new_exp));
++        // the start value of a resizable array has to be a scalar that is broadcast to all elements
++        b := Expression.isLiteralXML(Ceval.tryEvalExp(new_exp)) and
++             not (resizable and Type.isArray(Expression.typeOf(new_exp)));
+       end if;
+     end isEvaluable;
+   algorithm
+     // check binding
+     if isBound(var_ptr) then
+       binding := Binding.getExp(var.binding);
+-      b := isEvaluable(binding);
++      b := isEvaluable(binding, Type.isResizable(var.ty));
+     else
+       b := false;
+     end if;
+diff --git a/OMCompiler/Compiler/NBackEnd/Classes/NBackendDAE.mo b/OMCompiler/Compiler/NBackEnd/Classes/NBackendDAE.mo
+index 00baf62612..39ba9ac697 100644
+--- a/OMCompiler/Compiler/NBackEnd/Classes/NBackendDAE.mo
++++ b/OMCompiler/Compiler/NBackEnd/Classes/NBackendDAE.mo
+@@ -292,41 +292,11 @@ public
+     input output Expression exp;
+   algorithm
+     exp := match exp
+-      case Expression.CREF() then Expression.CREF(exp.ty, ComponentRef.mapSubscripts(exp.cref, sliceToRange));
++      case Expression.CREF() then Expression.CREF(exp.ty, ComponentRef.mapSubscripts(exp.cref, Subscript.sliceToRange));
+       else exp;
+     end match;
+   end lowerSliceRanges;
+ 
+-  function sliceToRange
+-    input output Subscript sub;
+-  protected
+-    array<Expression> elems;
+-    Integer first, step, n;
+-    Boolean is_range;
+-  algorithm
+-    sub := match sub
+-      case Subscript.SLICE(slice = Expression.ARRAY(elements = elems)) guard arrayLength(elems) > 2 algorithm
+-        is_range := true;
+-        for i in 1:arrayLength(elems) loop
+-          is_range := is_range and Expression.isInteger(elems[i]);
+-        end for;
+-        if is_range then
+-          first := Expression.integerValue(elems[1]);
+-          step := Expression.integerValue(elems[2]) - first;
+-          n := arrayLength(elems);
+-          is_range := step <> 0;
+-          for i in 3:n loop
+-            is_range := is_range and Expression.integerValue(elems[i]) == first + (i - 1) * step;
+-          end for;
+-          if is_range then
+-            sub := Subscript.SLICE(Expression.makeIntegerRange(first, step, first + (n - 1) * step));
+-          end if;
+-        end if;
+-      then sub;
+-      else sub;
+-    end match;
+-  end sliceToRange;
+-
+   function lowerFunctionPointer
+     "A function pointer such as f in solveOneNonlinearEquation(f, ...) is a cref to
+     the function. Represent it as a function partial application without arguments,
+diff --git a/OMCompiler/Compiler/NBackEnd/Modules/2_Pre/NBAlias.mo b/OMCompiler/Compiler/NBackEnd/Modules/2_Pre/NBAlias.mo
+index 09d19bfec9..2ee80ab0a2 100644
+--- a/OMCompiler/Compiler/NBackEnd/Modules/2_Pre/NBAlias.mo
++++ b/OMCompiler/Compiler/NBackEnd/Modules/2_Pre/NBAlias.mo
+@@ -995,12 +995,11 @@ protected
+     list<ComponentRef> names;
+     list<Expression> ranges;
+     list<Option<Iterator>> maps;
+-    UnorderedMap<ComponentRef, Integer> iter_sizes = UnorderedMap.new<Integer>(ComponentRef.hash, ComponentRef.isEqual);
++    UnorderedMap<ComponentRef, Expression> iter_sizes = UnorderedMap.new<Expression>(ComponentRef.hash, ComponentRef.isEqual);
+     Pointer<Option<list<Subscript>>> subs_ptr = Pointer.create(NONE());
+     Pointer<Boolean> ok_ptr = Pointer.create(true);
+     Pointer<Option<Type>> ty_ptr = Pointer.create(NONE());
+     Expression lhs, rhs;
+-    Integer start, step, stop;
+   algorithm
+     (lhs, rhs) := match eq
+       case Equation.FOR_EQUATION(body = {Equation.SCALAR_EQUATION(lhs = lhs, rhs = rhs)}) then (lhs, rhs);
+@@ -1015,10 +1014,11 @@ protected
+         local
+           ComponentRef name;
+           Expression range;
+-        case (name, range as Expression.RANGE(), NONE()) guard(Expression.isLiteral(range)) algorithm
+-          (start, step, stop) := Expression.getIntegerRange(range, false);
+-          if start <> 1 or step <> 1 then return; end if;
+-          UnorderedMap.add(name, stop, iter_sizes);
++        // the stop may be symbolic, e.g. the parameter of a resizable dimension
++        case (name, range as Expression.RANGE(start = Expression.INTEGER(1)), NONE())
++          guard(isNone(range.step) or Expression.isOne(Util.getOption(range.step))) algorithm
++          if Expression.isInteger(range.stop) and Expression.integerValue(range.stop) < 1 then return; end if;
++          UnorderedMap.add(name, range.stop, iter_sizes);
+         then ();
+         else algorithm return; then ();
+       end match;
+@@ -1041,7 +1041,7 @@ protected
+ 
+   function isIteratorCref
+     input Expression exp;
+-    input UnorderedMap<ComponentRef, Integer> iter_sizes;
++    input UnorderedMap<ComponentRef, Expression> iter_sizes;
+     output Boolean b;
+   algorithm
+     b := match exp
+@@ -1054,7 +1054,7 @@ protected
+     "true if the subscript is whole or an iterator that covers the full dimension"
+     input Subscript sub;
+     input Dimension dim;
+-    input UnorderedMap<ComponentRef, Integer> iter_sizes;
++    input UnorderedMap<ComponentRef, Expression> iter_sizes;
+     output Boolean b;
+   algorithm
+     b := match sub
+@@ -1068,7 +1068,7 @@ protected
+       then start == 1 and step == 1 and stop == Dimension.size(dim);
+       case Subscript.INDEX(index = Expression.CREF(cref = iter))
+         guard(UnorderedMap.contains(iter, iter_sizes) and Dimension.isKnown(dim))
+-      then Dimension.size(dim) == UnorderedMap.getSafe(iter, iter_sizes, sourceInfo());
++      then Expression.isEqual(Dimension.sizeExp(dim), UnorderedMap.getSafe(iter, iter_sizes, sourceInfo()));
+       else false;
+     end match;
+   end isFullIteratorSubscript;
+@@ -1077,7 +1077,7 @@ protected
+     "helper for forToFullArrayEquation. Replaces subscripted crefs by the full variable
+     and checks that all of them are subscripted the same way and that no iterator is used otherwise."
+     input output Expression exp;
+-    input UnorderedMap<ComponentRef, Integer> iter_sizes;
++    input UnorderedMap<ComponentRef, Expression> iter_sizes;
+     input Pointer<Option<list<Subscript>>> subs_ptr;
+     input Pointer<Boolean> ok_ptr;
+     input Pointer<Option<Type>> ty_ptr;
+diff --git a/OMCompiler/Compiler/NBackEnd/Modules/3_Post/NBTearing.mo b/OMCompiler/Compiler/NBackEnd/Modules/3_Post/NBTearing.mo
+index 2523753f9b..acb7ed519d 100644
+--- a/OMCompiler/Compiler/NBackEnd/Modules/3_Post/NBTearing.mo
++++ b/OMCompiler/Compiler/NBackEnd/Modules/3_Post/NBTearing.mo
+@@ -64,11 +64,12 @@ protected
+   import ComponentRef = NFComponentRef;
+   import Subscript = NFSubscript;
+   import Type = NFType;
++  import Call = NFCall;
+   import Dimension = NFDimension;
+   import Operator = NFOperator;
+   import SimplifyExp = NFSimplifyExp;
+   import NFInstNode.InstNode;
+-  import NFBackendExtension.{BackendInfo, VariableKind};
++  import NFBackendExtension.{BackendInfo, VariableAttributes, VariableKind};
+ 
+   // Backend imports
+   import Adjacency = NBAdjacency;
+@@ -492,6 +493,7 @@ protected
+     Boolean resizable;
+     list<Module.tearingInterface> pre_funcs;
+     Module.tearingInterface fin;
++    list<StrongComponent> comps, guesses;
+   algorithm
+     for part in partitions loop
+       if isSome(part.strongComponents) and isSome(part.adjacencyMatrix) then
+@@ -516,12 +518,13 @@ protected
+           strongComponents := mergeResizableLoops(strongComponents);
+           fin := List.last(funcs);
+           part_vars := Pointer.create({});
++          comps := {};
+           for i in 1:arrayLength(strongComponents) loop
+-            tmp := resizableIterationArrays(strongComponents[i], eq_index, part_vars);
++            (tmp, guesses) := resizableIterationArrays(strongComponents[i], eq_index, part_vars);
+             (tmp, full, idx) := fin(tmp, full, funcMap, idx, part.unknowns, part.equations, eq_index, kind);
+-            arrayUpdate(strongComponents, i, tmp);
++            comps := tmp :: List.append_reverse(guesses, comps);
+           end for;
+-          strongComponents := listArray(List.flatten(list(splitGenericSlices(c) for c in strongComponents)));
++          strongComponents := listArray(List.flatten(list(splitGenericSlices(c) for c in listReverse(comps))));
+           // the new whole arrays are unknowns of the partition (e.g. for the jacobian sparsity)
+           part.unknowns := VariablePointers.addList(Pointer.access(part_vars), part.unknowns);
+           Pointer.update(new_vars, listAppend(Pointer.access(part_vars), Pointer.access(new_vars)));
+@@ -537,23 +540,27 @@ protected
+   function resizableIterationArrays
+     "Partial slices of resizable arrays as iteration variables are only known at
+      the analysis sizes. A slice that consists of boxes of elements becomes new
+-     whole resizable arrays, the elements of the slice are assigned from them first."
++     whole resizable arrays, the elements of the slice are assigned from them first.
++     The guesses assign the new arrays from the current values of the slices before the loop."
+     input output StrongComponent comp;
++    output list<StrongComponent> guesses = {};
+     input Pointer<Integer> eq_index;
+     input Pointer<list<Pointer<Variable>>> new_vars;
+   protected
+     list<Slice<VariablePointer>> vars = {}, new_slices;
+-    list<StrongComponent> copies = {}, new_copies;
++    list<StrongComponent> copies = {}, new_copies, new_guesses;
+   algorithm
+     comp := match comp
+       local
+         Tearing strict;
+       case StrongComponent.ALGEBRAIC_LOOP(strict = strict as TEARING_SET()) algorithm
+         for slice in strict.iteration_vars loop
+-          (new_slices, new_copies) := resizableIterationArray(wholeVarSlice(slice), eq_index, new_vars);
++          (new_slices, new_copies, new_guesses) := resizableIterationArray(wholeVarSlice(slice), eq_index, new_vars);
+           vars := List.append_reverse(new_slices, vars);
+           copies := List.append_reverse(new_copies, copies);
++          guesses := List.append_reverse(new_guesses, guesses);
+         end for;
++        guesses := listReverse(guesses);
+         if not listEmpty(copies) then
+           strict.iteration_vars := listReverse(vars);
+           strict.innerEquations := listArray(listAppend(listReverse(copies), arrayList(strict.innerEquations)));
+@@ -572,6 +579,7 @@ protected
+     input Slice<VariablePointer> slice;
+     output list<Slice<VariablePointer>> slices = {slice};
+     output list<StrongComponent> copies = {};
++    output list<StrongComponent> guesses = {};
+     input Pointer<Integer> eq_index;
+     input Pointer<list<Pointer<Variable>>> new_vars;
+   protected
+@@ -582,7 +590,7 @@ protected
+     Iterator full_iter;
+     list<list<Integer>> parts;
+     list<Option<Iterator>> o_iters;
+-    StrongComponent copy;
++    StrongComponent copy, guess;
+     Slice<VariablePointer> new_slice;
+   algorithm
+     dims := Type.arrayDims(var.ty);
+@@ -605,37 +613,57 @@ protected
+ 
+     slices := {};
+     for o_iter in o_iters loop
+-      (new_slice, copy) := resizableIterationBox(Slice.getT(slice), iters, Util.getOption(o_iter), eq_index, new_vars);
++      (new_slice, copy, guess) := resizableIterationBox(Slice.getT(slice), iters, Util.getOption(o_iter), eq_index, new_vars);
+       slices := new_slice :: slices;
+       copies := copy :: copies;
++      guesses := guess :: guesses;
+     end for;
+     slices := listReverse(slices);
+     copies := listReverse(copies);
++    guesses := listReverse(guesses);
+   end resizableIterationArray;
+ 
+   function resizableIterationBox
+-    "the new whole array for a box of a variable and the assignment of its elements"
++    "the new whole array for a box of a variable, the assignment of its elements
++     and the assignment of the new array from the current values as initial guess"
+     input Pointer<Variable> var_ptr;
+     input list<ComponentRef> iters "the iterators of the dimensions";
+     input Iterator iter "the iterators restricted to the box";
+     output Slice<VariablePointer> slice;
+     output StrongComponent copy;
++    output StrongComponent guess;
+     input Pointer<Integer> eq_index;
+     input Pointer<list<Pointer<Variable>>> new_vars;
+   protected
+-    Variable var = Pointer.access(var_ptr);
++    Variable var = Pointer.access(var_ptr), aux;
++    VariableAttributes attrs;
++    SliceFunc func;
+     list<ComponentRef> names;
+     list<Expression> ranges;
+     Pointer<Variable> aux_ptr;
+-    ComponentRef aux_cref, elem_cref;
++    ComponentRef aux_cref, elem_cref, aux_elem_cref;
+     Expression lhs, rhs, start;
+     list<Subscript> aux_subs = {};
+-    Pointer<Equation> eqn;
++    Pointer<Equation> eqn, guess_eqn;
+     UnorderedMap<ComponentRef, EvalOrder> order;
+   algorithm
+     (names, ranges, _) := Iterator.getFrames(iter);
+     (aux_ptr, aux_cref) := BVariable.makeAuxVar("$RZ", Pointer.access(eq_index), Type.ARRAY(Type.arrayElementType(var.ty),
+       list(Type.nthDimension(Expression.typeOf(r), 1) for r in ranges)), false);
++    aux := Pointer.access(aux_ptr);
++    attrs := var.backendinfo.attributes;
++    attrs := match attrs
++      case VariableAttributes.VAR_ATTR_REAL() algorithm
++        func := function sliceAttribute(subs = list(Subscript.SLICE(r) for r in ranges));
++        attrs.start   := Util.applyOption(attrs.start, function Binding.mapExpShallow(mapFn = func));
++        attrs.nominal := Util.applyOption(attrs.nominal, function Binding.mapExpShallow(mapFn = func));
++        attrs.min     := Util.applyOption(attrs.min, function Binding.mapExpShallow(mapFn = func));
++        attrs.max     := Util.applyOption(attrs.max, function Binding.mapExpShallow(mapFn = func));
++      then attrs;
++      else aux.backendinfo.attributes;
++    end match;
++    aux.backendinfo := BackendInfo.setAttributes(aux.backendinfo, attrs, var.backendinfo.annotations);
++    Pointer.update(aux_ptr, aux);
+     Pointer.update(new_vars, aux_ptr :: Pointer.access(new_vars));
+     for tpl in List.zip(names, ranges) loop
+       Expression.RANGE(start = start) := Util.tuple22(tpl);
+@@ -644,17 +672,60 @@ protected
+     end for;
+     aux_subs := listReverse(aux_subs);
+     elem_cref := ComponentRef.mergeSubscripts(list(Subscript.INDEX(Expression.fromCref(i)) for i in iters), var.name, true, true);
++    aux_elem_cref := ComponentRef.mergeSubscripts(aux_subs, aux_cref, true, true);
+     lhs := Expression.fromCref(elem_cref);
+-    rhs := Expression.fromCref(ComponentRef.mergeSubscripts(aux_subs, aux_cref, true, true));
++    rhs := Expression.fromCref(aux_elem_cref);
+     eqn := Equation.makeAssignment(lhs, rhs, eq_index, NBEquation.SIMULATION_STR, iter, EquationAttributes.default(EquationKind.CONTINUOUS, false));
++    guess_eqn := Equation.makeAssignment(rhs, lhs, eq_index, NBEquation.SIMULATION_STR, iter, EquationAttributes.default(EquationKind.CONTINUOUS, false));
+     order := UnorderedMap.new<EvalOrder>(ComponentRef.hash, ComponentRef.isEqual);
+     for n in names loop
+       UnorderedMap.add(n, EvalOrder.INDEPENDENT, order);
+     end for;
+     copy := StrongComponent.RESIZABLE_COMPONENT(elem_cref, Slice.SLICE(var_ptr, {}), Slice.SLICE(eqn, {}), order, NBSolve.Status.EXPLICIT);
++    guess := StrongComponent.RESIZABLE_COMPONENT(aux_elem_cref, Slice.SLICE(aux_ptr, {}), Slice.SLICE(guess_eqn, {}), UnorderedMap.copy(order), NBSolve.Status.EXPLICIT);
+     slice := Slice.SLICE(aux_ptr, {});
+   end resizableIterationBox;
+ 
++  partial function SliceFunc
++    input output Expression exp;
++  end SliceFunc;
++
++  function sliceAttribute
++    "the attribute of the box elements, e.g. the start values of x[2:N] for $RZ"
++    input output Expression exp;
++    input list<Subscript> subs;
++  protected
++    Integer n = Type.dimensionCount(Expression.typeOf(exp));
++    Call call;
++    list<tuple<InstNode, Expression>> iters = {};
++    list<Subscript> rest;
++    Expression range;
++    Boolean ok = true;
++  algorithm
++    if n == 0 then return; end if;
++    // an attribute with fewer dimensions applies to the trailing ones
++    rest := List.lastN(subs, n);
++    exp := match exp
++      // {e for i in 1:n}[s:t] -> {e for i in s:t}, the last iterator belongs to the first dimension
++      case Expression.CALL(call = call as Call.TYPED_ARRAY_CONSTRUCTOR()) guard(listLength(call.iters) == n) algorithm
++        for tpl in listReverse(call.iters) loop
++          range := match (Util.tuple22(tpl), listHead(rest))
++            local
++              Expression slice;
++            case (_, Subscript.WHOLE()) then Util.tuple22(tpl);
++            case (Expression.RANGE(start = Expression.INTEGER(1), step = NONE()), Subscript.SLICE(slice = slice as Expression.RANGE())) then slice;
++            else algorithm ok := false; then Util.tuple22(tpl);
++          end match;
++          iters := (Util.tuple21(tpl), range) :: iters;
++          rest := listRest(rest);
++        end for;
++        call.iters := iters;
++        call.ty := Type.ARRAY(Type.arrayElementType(call.ty), list(Type.nthDimension(Expression.typeOf(Util.tuple22(t)), 1) for t in listReverse(iters)));
++      then if ok then Expression.CALL(call) else Expression.applySubscripts(List.lastN(subs, n), exp);
++      else Expression.applySubscripts(rest, exp);
++    end match;
++  end sliceAttribute;
++
+   function mergeResizableLoops
+     "Adjacent algebraic loops that are parts of the same variables and equations
+      are merged if together they are whole: with resizable arrays the parts are
+@@ -890,6 +961,7 @@ protected
+         strict.residual_eqns := list(wholeEqnSlice(e) for e in strict.residual_eqns);
+         if Flags.getConfigBool(Flags.RESIZABLE_ARRAYS) then
+           strict.residual_eqns := List.flatten(list(restrictedForSlice(e, eq_index) for e in strict.residual_eqns));
++          strict.residual_eqns := List.flatten(list(bodyElementFors(e, eq_index) for e in strict.residual_eqns));
+         end if;
+ 
+         // inline potential records
+@@ -965,6 +1037,45 @@ protected
+     end match;
+   end restrictedForSlice;
+ 
++  function bodyElementFors
++    "a whole for-equation with a fixed size array body as one for-equation per
++     body element, the iterators stay symbolic"
++    input Slice<EquationPointer> slice;
++    input Pointer<Integer> eq_index;
++    output list<Slice<EquationPointer>> slices = {slice};
++  protected
++    Equation eqn, body;
++    list<Integer> sizes;
++    list<Subscript> subs;
++    Pointer<Equation> eqn_ptr;
++  algorithm
++    if not listEmpty(slice.indices) then
++      return;
++    end if;
++    eqn := Pointer.access(Slice.getT(slice));
++    () := match eqn
++      case Equation.FOR_EQUATION(body = {body as Equation.ARRAY_EQUATION(recordSize = NONE())}) guard
++          List.all(Type.arrayDims(body.ty), function Dimension.isKnown(allowExp = false)) and
++          not List.any(Type.arrayDims(body.ty), Dimension.isResizable) algorithm
++        sizes := list(Dimension.size(d) for d in Type.arrayDims(body.ty));
++        slices := {};
++        for i in 0:List.fold(sizes, intMul, 1)-1 loop
++          subs := list(Subscript.INDEX(Expression.INTEGER(l + 1)) for l in Slice.indexToLocation(i, sizes));
++          eqn.body := {Equation.SCALAR_EQUATION(Type.arrayElementType(body.ty),
++            SimplifyExp.simplifyDump(Equation.scalarizeElement(body.lhs, subs), true, getInstanceName()),
++            SimplifyExp.simplifyDump(Equation.scalarizeElement(body.rhs, subs), true, getInstanceName()),
++            body.source, body.attr)};
++          eqn.size := Iterator.size(eqn.iter);
++          eqn_ptr := Pointer.create(eqn);
++          Equation.createName(eqn_ptr, eq_index, NBEquation.SIMULATION_STR);
++          slices := Slice.SLICE(eqn_ptr, {}) :: slices;
++        end for;
++        slices := listReverse(slices);
++      then ();
++      else ();
++    end match;
++  end bodyElementFors;
++
+   function restrictedIterators
+     "the iterator restricted to the boxes of the iterations, empty if not possible"
+     input Iterator iter;
+diff --git a/OMCompiler/Compiler/NBackEnd/Util/NBAdjacency.mo b/OMCompiler/Compiler/NBackEnd/Util/NBAdjacency.mo
+index 96ceded1e9..35b824ecbe 100644
+--- a/OMCompiler/Compiler/NBackEnd/Util/NBAdjacency.mo
++++ b/OMCompiler/Compiler/NBackEnd/Util/NBAdjacency.mo
+@@ -2117,6 +2117,7 @@ public
+ 
+     type InnerTemplate = tuple<ComponentRef, list<ComponentRef>> "solved cref with the subscripts of its equation, its dependencies";
+     type InnerTemplates = list<InnerTemplate>;
++    type UnifyStatus = enumeration(DIFFERENT, MATCHED, UNKNOWN) "the subscripts address different elements, match with bindings or can not be compared";
+ 
+     function sparsityAddTemplate
+       input ComponentRef cref;
+@@ -2138,7 +2139,7 @@ public
+     protected
+       InnerTemplates templates = UnorderedMap.getOrDefault(ComponentRef.stripSubscriptsAll(cref), template_map, {});
+       list<Subscript> subs = ComponentRef.subscriptsAllWithWholeFlat(cref);
+-      Integer status;
++      UnifyStatus status;
+       UnorderedMap<ComponentRef, Expression> bindings;
+       ComponentRef key, dep;
+       list<ComponentRef> key_deps;
+@@ -2147,16 +2148,18 @@ public
+       for template in templates loop
+         (key, key_deps) := template;
+         (status, bindings) := sparsityUnify(ComponentRef.subscriptsAllWithWholeFlat(key), subs);
+-        if status == 2 then
++        if status == UnifyStatus.UNKNOWN then
+           return;
+-        elseif status == 1 then
++        elseif status == UnifyStatus.MATCHED then
+           matched := true;
+           for d in key_deps loop
+-            if sparsityHasUnbound(d, bindings) then
+-              // an iterator of the inner equation that does not occur in the solved cref
++            // an iterator of the inner equation that does not occur in the solved cref addresses all
++            // elements, only of the last dimension if the others are bound (the shape codegen supports)
++            dep := sparsityWholeLastIfUnbound(d, bindings);
++            if sparsityHasUnbound(dep, bindings) then
+               deps := ComponentRef.stripSubscriptsAll(d) :: deps;
+             else
+-              dep := ComponentRef.mapExp(ComponentRef.mapExp(d, function sparsityBind(bindings = bindings)), sparsitySimplify);
++              dep := ComponentRef.mapExp(ComponentRef.mapExp(dep, function sparsityBind(bindings = bindings)), sparsitySimplify);
+               dep := sparsityResolveLookups(dep);
+               if sparsityInBounds(dep) then
+                 deps := dep :: deps;
+@@ -2169,10 +2172,9 @@ public
+     end sparsityTemplateDeps;
+ 
+     function sparsityUnify
+-      "0: the subscripts address different elements, 1: they match with the bindings, 2: unknown"
+       input list<Subscript> key_subs;
+       input list<Subscript> subs;
+-      output Integer status = 1;
++      output UnifyStatus status = UnifyStatus.MATCHED;
+       output UnorderedMap<ComponentRef, Expression> bindings = UnorderedMap.new<Expression>(ComponentRef.hash, ComponentRef.isEqual);
+     protected
+       Expression key_exp, exp, value, offset;
+@@ -2180,18 +2182,19 @@ public
+       ComponentRef iter;
+     algorithm
+       if listLength(key_subs) <> listLength(subs) then
+-        status := 2;
++        status := UnifyStatus.UNKNOWN;
+         return;
+       end if;
+       for tpl in List.zip(key_subs, subs) loop
+         () := match tpl
+           case (Subscript.WHOLE(), _) then ();
++          case (Subscript.SLICE(slice = key_exp), _) guard(not sparsityHasIterator(key_exp)) then ();
+           // a literal or a parameter (x[N]) binds nothing, it can only be told apart from another literal
+           case (Subscript.INDEX(index = key_exp), _) guard(not sparsityHasIterator(key_exp)) algorithm
+             () := match Util.tuple22(tpl)
+               case Subscript.INDEX(index = exp) guard(Expression.isInteger(exp) and Expression.isInteger(key_exp)) algorithm
+                 if Expression.integerValue(exp) <> Expression.integerValue(key_exp) then
+-                  status := 0;
++                  status := UnifyStatus.DIFFERENT;
+                 end if;
+               then ();
+               else ();
+@@ -2199,6 +2202,9 @@ public
+           then ();
+           // a symbolic index without iterators (e.g. x[N] of a resizable array) may match, like a literal
+           case (Subscript.INDEX(index = key_exp), _) guard(not Expression.contains(key_exp, Expression.isIterator)) then ();
++          // several elements (x[i, :]) leave the iterator unbound, dependencies using it become whole arrays
++          case (Subscript.INDEX(), Subscript.WHOLE()) then ();
++          case (Subscript.INDEX(), Subscript.SLICE()) then ();
+           case (Subscript.INDEX(index = key_exp), Subscript.INDEX(index = exp)) algorithm
+             (ok, iter, offset, negated) := sparsityIteratorOffset(key_exp);
+             if ok then
+@@ -2206,19 +2212,19 @@ public
+                 then SimplifyExp.simplify(Expression.BINARY(offset, Operator.makeSub(Type.INTEGER()), exp))
+                 else SimplifyExp.simplify(Expression.BINARY(exp, Operator.makeSub(Type.INTEGER()), offset));
+               if UnorderedMap.contains(iter, bindings) and not Expression.isEqual(value, UnorderedMap.getSafe(iter, bindings, sourceInfo())) then
+-                status := 2;
++                status := UnifyStatus.UNKNOWN;
+               else
+                 UnorderedMap.add(iter, value, bindings);
+               end if;
+             else
+-              status := 2;
++              status := UnifyStatus.UNKNOWN;
+             end if;
+           then ();
+           else algorithm
+-            status := 2;
++            status := UnifyStatus.UNKNOWN;
+           then ();
+         end match;
+-        if status <> 1 then
++        if status <> UnifyStatus.MATCHED then
+           return;
+         end if;
+       end for;
+@@ -2277,6 +2283,50 @@ public
+       exp := SimplifyExp.simplify(exp);
+     end sparsitySimplify;
+ 
++    function sparsityWholeLastIfUnbound
++      input output ComponentRef cref;
++      input UnorderedMap<ComponentRef, Expression> bindings;
++    protected
++      list<Subscript> subs = listReverse(ComponentRef.subscriptsAllFlat(cref));
++      Subscript last;
++    algorithm
++      if listEmpty(subs) then
++        return;
++      end if;
++      last :: subs := subs;
++      if sparsityIsUnboundIndex(last, bindings) and not List.any(subs, function sparsityIsUnboundIndex(bindings = bindings))
++         and List.all(subs, Subscript.isIndex) then
++        cref := ComponentRef.mapSubscripts(cref, function sparsityWholeIfUnbound(bindings = bindings));
++      end if;
++    end sparsityWholeLastIfUnbound;
++
++    function sparsityWholeIfUnbound
++      input output Subscript sub;
++      input UnorderedMap<ComponentRef, Expression> bindings;
++    algorithm
++      if sparsityIsUnboundIndex(sub, bindings) then
++        sub := Subscript.WHOLE();
++      end if;
++    end sparsityWholeIfUnbound;
++
++    function sparsityIsUnboundIndex
++      input Subscript sub;
++      input UnorderedMap<ComponentRef, Expression> bindings;
++      output Boolean b;
++    algorithm
++      b := match sub
++        case Subscript.INDEX() then UnorderedSet.any(Expression.extractCrefs(sub.index),
++          function sparsityIsUnboundIterator(bindings = bindings));
++        else false;
++      end match;
++    end sparsityIsUnboundIndex;
++
++    function sparsityIsUnboundIterator
++      input ComponentRef cref;
++      input UnorderedMap<ComponentRef, Expression> bindings;
++      output Boolean b = ComponentRef.isIterator(cref) and not UnorderedMap.contains(cref, bindings);
++    end sparsityIsUnboundIterator;
++
+     function sparsityHasUnbound
+       input ComponentRef cref;
+       input UnorderedMap<ComponentRef, Expression> bindings;
+diff --git a/OMCompiler/Compiler/NFFrontEnd/NFCeval.mo b/OMCompiler/Compiler/NFFrontEnd/NFCeval.mo
+index f25ca655d3..c0c11a42c9 100644
+--- a/OMCompiler/Compiler/NFFrontEnd/NFCeval.mo
++++ b/OMCompiler/Compiler/NFFrontEnd/NFCeval.mo
+@@ -530,6 +530,8 @@ algorithm
+ 
+         // Replace the split subscripts with the corresponding subscripts from the cref.
+         subs := list(subscriptBinding3(s, sub_map) for s in subs);
++        (subs, subMap) := List.mapFold(subs, function Subscript.mapFoldExpShallow(
++          func = function subscriptBinding2(cref = cref, evalSubscripts = evalSubscripts)), subMap);
+ 
+         // Evaluate the subscripts if it was requested.
+         if evalSubscripts then
+diff --git a/OMCompiler/Compiler/NFFrontEnd/NFExpression.mo b/OMCompiler/Compiler/NFFrontEnd/NFExpression.mo
+index 566a4e6f31..f8b66ca2bf 100644
+--- a/OMCompiler/Compiler/NFFrontEnd/NFExpression.mo
++++ b/OMCompiler/Compiler/NFFrontEnd/NFExpression.mo
+@@ -1855,6 +1855,14 @@ public
+       end if;
+     end if;
+ 
++    // Literal indices of the inner dimensions can still be applied to the
++    // elements, e.g. {{1, 2}, {3, 4}}[i, 2] => {2, 4}[i].
++    if not listEmpty(restSubscripts) and List.all(restSubscripts, Subscript.isScalarLiteral) then
++      outExp := applySubscriptArray(Subscript.WHOLE(), exp, restSubscripts, false);
++      outExp := makeSubscriptedExp({Subscript.INDEX(index)}, outExp);
++      return;
++    end if;
++
+     // Otherwise create a subscript expression.
+     outExp := makeSubscriptedExp(Subscript.INDEX(index) :: restSubscripts, exp);
+   end applyIndexExpArray;
+diff --git a/OMCompiler/Compiler/NFFrontEnd/NFFlatten.mo b/OMCompiler/Compiler/NFFrontEnd/NFFlatten.mo
+index f33f9da5be..5a61003e08 100644
+--- a/OMCompiler/Compiler/NFFrontEnd/NFFlatten.mo
++++ b/OMCompiler/Compiler/NFFrontEnd/NFFlatten.mo
+@@ -2976,6 +2976,8 @@ protected
+ algorithm
+   // the array handlers do not know about deleted conditional components
+   flatModel.equations := removeDeletedConnects(flatModel.equations, deletedVars);
++  // the frontend evaluates slices of known size to index arrays, the handlers expect ranges
++  flatModel.equations := list(Equation.map(eq, connectSliceRanges) for eq in flatModel.equations);
+ 
+   // Overconstrained connections: build the graph like resolveConnections, which
+   // evaluates the Connections.* operators (isRoot, rooted). The connect equations
+@@ -3009,6 +3011,24 @@ algorithm
+   execStat(getInstanceName());
+ end resolveArrayConnections;
+ 
++function connectSliceRanges
++  input output Equation eq;
++protected
++  function sliceRanges
++    input output Expression exp;
++  algorithm
++    exp := match exp
++      case Expression.CREF() then Expression.CREF(exp.ty, ComponentRef.mapSubscripts(exp.cref, Subscript.sliceToRange));
++      else exp;
++    end match;
++  end sliceRanges;
++algorithm
++  eq := match eq
++    case Equation.CONNECT() then Equation.mapExp(eq, sliceRanges);
++    else eq;
++  end match;
++end connectSliceRanges;
++
+ function coalesceConnects
+   "Runs of connections of single elements of one-dimensional arrays with the
+    same index distance, e.g. connect(r[k].n, r[k + 1].p) for consecutive k,
+diff --git a/OMCompiler/Compiler/NFFrontEnd/NFResizableConnections.mo b/OMCompiler/Compiler/NFFrontEnd/NFResizableConnections.mo
+index 7797e325d3..1c2cd14f31 100644
+--- a/OMCompiler/Compiler/NFFrontEnd/NFResizableConnections.mo
++++ b/OMCompiler/Compiler/NFFrontEnd/NFResizableConnections.mo
+@@ -1708,6 +1708,7 @@ protected
+       UnorderedMap<String, Variable> variables;
+       UnorderedSet<String> literal "vertex keys of the connector arrays connected only with literal indices";
+       UnorderedMap<String, list<Integer>> elements "vertex key of such a connector array -> the vertices of its elements";
++      UnorderedMap<String, Aff> aliases "size parameters equal to others because their arrays are connected";
+     end CONTEXT;
+   end Context;
+ 
+@@ -1906,7 +1907,7 @@ protected
+           else
+             name := ComponentRef.toString(exp.cref);
+             UnorderedMap.tryAdd(name, exp, ctx.params);
+-            a1 := affParam(name);
++            a1 := UnorderedMap.getOrDefault(name, ctx.aliases, affParam(name));
+           end if;
+         then a1;
+ 
+@@ -2463,7 +2464,10 @@ protected
+           for p in List.zip(sa, sb) loop
+             len_a := symSub(sliceHi(Util.tuple21(p)), sliceLo(Util.tuple21(p)), facts);
+             len_b := symSub(sliceHi(Util.tuple22(p)), sliceLo(Util.tuple22(p)), facts);
+-            if not symEq(len_a, len_b) then
++            if not symEq(len_a, len_b) and addSizeAlias(len_a, len_b, ctx) then
++              // resolve builds the edges again with the alias
++              len_b := len_a;
++            elseif not symEq(len_a, len_b) then
+               unsupported("connecting slices whose sizes " + symString(len_a) + " + 1 and " + symString(len_b) +
+                 " + 1 are not equal symbolically", source);
+             end if;
+@@ -2475,6 +2479,118 @@ protected
+           edge := EDGE(d, SIDE(va, ia, oa), SIDE(vb, ib, ob), source);
+   end makeEdge;
+ 
++  function addSizeAlias
++    "Connected slices with sizes of the same value but different parameters
++     have to have equal sizes: one size parameter becomes an expression of the
++     others, e.g. b.n = a.n for connect(a.x, b.x) with x[n]."
++    input Sym a;
++    input Sym b;
++    input Context ctx;
++    output Boolean added = false;
++  protected
++    Aff d, rest;
++    String name;
++    Integer k;
++    Option<Variable> ovar;
++    Variable var;
++  algorithm
++    if not (symIsAff(a) and symIsAff(b)) or not equalValues(a, b, ctx.params) then
++      return;
++    end if;
++    d := affSub(symGetAff(b), symGetAff(a));
++    for t in d.k loop
++      (name, k) := t;
++      ovar := UnorderedMap.get(name, ctx.variables);
++      if abs(k) == 1 and isSome(ovar) then
++        SOME(var) := ovar;
++        if Util.applyOptionOrDefault(Binding.getExpOpt(var.binding), Expression.isInteger, false) then
++          // d = k * name + rest = 0
++          rest := affSub(d, affScale(affParam(name), k));
++          rest := if k == 1 then affNeg(rest) else rest;
++          for n in UnorderedMap.keyList(ctx.aliases) loop
++            UnorderedMap.add(n, affSubstitute(UnorderedMap.getOrFail(n, ctx.aliases), name, rest), ctx.aliases);
++          end for;
++          UnorderedMap.add(name, rest, ctx.aliases);
++          added := true;
++          return;
++        end if;
++      end if;
++    end for;
++  end addSizeAlias;
++
++  function affSubstitute
++    input Aff a;
++    input String name;
++    input Aff value;
++    output Aff res = a;
++  protected
++    String n;
++    Integer k;
++  algorithm
++    for t in a.k loop
++      (n, k) := t;
++      if n == name then
++        res := affAdd(affSub(a, affScale(affParam(name), k)), affScale(value, k));
++        return;
++      end if;
++    end for;
++  end affSubstitute;
++
++  function equalValues
++    "the bounds have the same value for the actual values of the size parameters"
++    input Sym a;
++    input Sym b;
++    input UnorderedMap<String, Expression> params;
++    output Boolean eq;
++  protected
++    function value
++      input Sym s;
++      input UnorderedMap<String, Expression> params;
++      output Expression e = SimplifyExp.simplify(Expression.map(symToExp(s, params), Expression.replaceResizableParameter));
++    end value;
++  algorithm
++    eq := match (value(a, params), value(b, params))
++      local
++        Integer va, vb;
++      case (Expression.INTEGER(value = va), Expression.INTEGER(value = vb)) then va == vb;
++      else false;
++    end match;
++  end equalValues;
++
++  function applySizeAliases
++    "replaces the aliased size parameters by their expressions and binds them to these"
++    input output FlatModel flatModel;
++    input Context ctx;
++  protected
++    UnorderedMap<String, Expression> values = UnorderedMap.new<Expression>(stringHashDjb2, stringEq);
++    Variable var;
++    list<Variable> vars = {};
++    String name;
++  algorithm
++    if UnorderedMap.isEmpty(ctx.aliases) then
++      return;
++    end if;
++    for name in UnorderedMap.keyList(ctx.aliases) loop
++      UnorderedMap.add(name, symToExp(symAff(UnorderedMap.getOrFail(name, ctx.aliases)), ctx.params), values);
++    end for;
++    flatModel := replaceSizes(flatModel, values);
++    for v in flatModel.variables loop
++      name := ComponentRef.toString(v.name);
++      if UnorderedMap.contains(name, values) then
++        var := v;
++        var.binding := Binding.setExp(UnorderedMap.getOrFail(name, values), var.binding);
++        if Flags.isSet(Flags.DUMP_RESIZABLE) then
++          Error.addCompilerNotification("--resizableArrays: " + name + " = " + Expression.toString(Binding.getExp(var.binding)) +
++            " because their arrays are connected.");
++        end if;
++        vars := var :: vars;
++      else
++        vars := v :: vars;
++      end if;
++    end for;
++    flatModel.variables := listReverseInPlace(vars);
++  end applySizeAliases;
++
+   function coalesceEdges
+     "Runs of connections of single elements of two one-dimensional connector
+      arrays with the same index distance, e.g. connect(r[k].n, r[k + 1].p) for
+@@ -3992,7 +4108,8 @@ protected
+   algorithm
+     ctx := CONTEXT(Vector.new<Vertex>(), UnorderedMap.new<Integer>(stringHashDjb2, stringEq),
+       UnorderedMap.new<Expression>(stringHashDjb2, stringEq), UnorderedMap.new<Variable>(stringHashDjb2, stringEq),
+-      UnorderedSet.new(stringHashDjb2, stringEq), UnorderedMap.new<VertexList>(stringHashDjb2, stringEq));
++      UnorderedSet.new(stringHashDjb2, stringEq), UnorderedMap.new<VertexList>(stringHashDjb2, stringEq),
++      UnorderedMap.new<Aff>(stringHashDjb2, stringEq));
+     for var in flatModel.variables loop
+       UnorderedMap.add(ComponentRef.toString(var.name), var, ctx.variables);
+       obind := Binding.getExpOpt(var.binding);
+@@ -4167,12 +4284,20 @@ public
+           SimplifyExp.simplify(Expression.map(Expression.fromCref(var.name), Expression.replaceResizableParameter)), values);
+       end if;
+     end for;
++    flatModel := replaceSizes(flatModel, values);
++  end evaluateFixedSizes;
++
++  function replaceSizes
++    "replaces size parameters by expressions in all expressions and dimensions"
++    input output FlatModel flatModel;
++    input UnorderedMap<String, Expression> values;
++  algorithm
+     flatModel.variables := list(Variable.applyToType(v, function Type.applyToDims(func =
+       function fixedDimension(values = values))) for v in flatModel.variables);
+     flatModel := FlatModel.mapExp(flatModel, function Expression.map(func = function fixedExp(values = values)));
+     flatModel.equations := list(Equation.map(eq, function fixedEquationType(values = values)) for eq in flatModel.equations);
+     flatModel.initialEquations := list(Equation.map(eq, function fixedEquationType(values = values)) for eq in flatModel.initialEquations);
+-  end evaluateFixedSizes;
++  end replaceSizes;
+ 
+   function fixedExp
+     input output Expression exp;
+@@ -4526,28 +4651,38 @@ public
+     array<list<ConnVar>> potentials, flows, streams;
+     ComponentRef c;
+     UnorderedSet<String> fixed;
++    UnorderedMap<String, Aff> aliases = UnorderedMap.new<Aff>(stringHashDjb2, stringEq);
++    Integer n_aliases;
+   algorithm
+     (conns, eql) := List.splitOnTrue(flatModel.equations, isConnection);
+-    ctx := CONTEXT(Vector.new<Vertex>(), UnorderedMap.new<Integer>(stringHashDjb2, stringEq),
+-      UnorderedMap.new<Expression>(stringHashDjb2, stringEq), UnorderedMap.new<Variable>(stringHashDjb2, stringEq),
+-      literalConnectors(conns), UnorderedMap.new<VertexList>(stringHashDjb2, stringEq));
+-    for var in flatModel.variables loop
+-      UnorderedMap.add(ComponentRef.toString(var.name), var, ctx.variables);
+-    end for;
++    // a new size alias (addSizeAlias) changes the vertices, start over
++    while true loop
++      ctx := CONTEXT(Vector.new<Vertex>(), UnorderedMap.new<Integer>(stringHashDjb2, stringEq),
++        UnorderedMap.new<Expression>(stringHashDjb2, stringEq), UnorderedMap.new<Variable>(stringHashDjb2, stringEq),
++        literalConnectors(conns), UnorderedMap.new<VertexList>(stringHashDjb2, stringEq), aliases);
++      n_aliases := UnorderedMap.size(aliases);
++      for var in flatModel.variables loop
++        UnorderedMap.add(ComponentRef.toString(var.name), var, ctx.variables);
++      end for;
+ 
+-    // every connector with flow variables is a vertex: unconnected flows are zero
+-    for var in flatModel.variables loop
+-      if Variable.isFlow(var) then
+-        c := ComponentRef.rest(var.name);
+-        if not ComponentRef.isEmpty(c) then
+-          connectorVertices(c, ElementSource.createElementSource(var.info), ctx);
++      // every connector with flow variables is a vertex: unconnected flows are zero
++      for var in flatModel.variables loop
++        if Variable.isFlow(var) then
++          c := ComponentRef.rest(var.name);
++          if not ComponentRef.isEmpty(c) then
++            connectorVertices(c, ElementSource.createElementSource(var.info), ctx);
++          end if;
+         end if;
+-      end if;
+-    end for;
++      end for;
+ 
+-    for eq in conns loop
+-      edges := collectEdges(eq, {}, {}, ctx, edges);
+-    end for;
++      edges := {};
++      for eq in conns loop
++        edges := collectEdges(eq, {}, {}, ctx, edges);
++      end for;
++      if UnorderedMap.size(aliases) == n_aliases then
++        break;
++      end if;
++    end while;
+     edges := coalesceEdges(listReverseInPlace(edges));
+ 
+     (sets, facts) := connectionSets(ctx.vertices, edges);
+@@ -4560,6 +4695,7 @@ public
+     flatModel.equations := listAppend(eql, generateEquations(sets, ctx.vertices, potentials, flows, streams, ctx.params, facts, fixed));
+     flatModel := resolveStreams(flatModel, sets, ctx, streams, facts, fixed);
+     flatModel := evaluateFixedSizes(flatModel, fixed);
++    flatModel := applySizeAliases(flatModel, ctx);
+   end resolve;
+ 
+   annotation(__OpenModelica_Interface="nf_frontend");
+diff --git a/OMCompiler/Compiler/NFFrontEnd/NFSubscript.mo b/OMCompiler/Compiler/NFFrontEnd/NFSubscript.mo
+index 5a47e1b67d..f1323063b0 100644
+--- a/OMCompiler/Compiler/NFFrontEnd/NFSubscript.mo
++++ b/OMCompiler/Compiler/NFFrontEnd/NFSubscript.mo
+@@ -270,6 +270,38 @@ public
+     end match;
+   end isScalar;
+ 
++  function sliceToRange
++    "A slice of consecutive literal indices, e.g. {2, 3, ..., 10} from an evaluated
++    2:end, as a range."
++    input output Subscript sub;
++  protected
++    array<Expression> elems;
++    Integer first, step, n;
++    Boolean is_range;
++  algorithm
++    sub := match sub
++      case SLICE(slice = Expression.ARRAY(elements = elems)) guard arrayLength(elems) > 2 algorithm
++        is_range := true;
++        for i in 1:arrayLength(elems) loop
++          is_range := is_range and Expression.isInteger(elems[i]);
++        end for;
++        if is_range then
++          first := Expression.integerValue(elems[1]);
++          step := Expression.integerValue(elems[2]) - first;
++          n := arrayLength(elems);
++          is_range := step <> 0;
++          for i in 3:n loop
++            is_range := is_range and Expression.integerValue(elems[i]) == first + (i - 1) * step;
++          end for;
++          if is_range then
++            sub := SLICE(Expression.makeIntegerRange(first, step, first + (n - 1) * step));
++          end if;
++        end if;
++      then sub;
++      else sub;
++    end match;
++  end sliceToRange;
++
+   function isScalarLiteral
+     input Subscript sub;
+     output Boolean isScalarLiteral;
+diff --git a/OMCompiler/Compiler/SimCode/SimCodeCodegenUtil.mo b/OMCompiler/Compiler/SimCode/SimCodeCodegenUtil.mo
+index 26697eabea..4d9f257968 100644
+--- a/OMCompiler/Compiler/SimCode/SimCodeCodegenUtil.mo
++++ b/OMCompiler/Compiler/SimCode/SimCodeCodegenUtil.mo
+@@ -1392,7 +1392,7 @@ algorithm
+   end match;
+ end simIteratorSizeExp;
+ 
+-protected function typeSizeExp
++public function typeSizeExp
+   "the number of scalar elements of a type as an expression"
+   input DAE.Type ty;
+   output DAE.Exp exp = DAE.ICONST(1);
+diff --git a/OMCompiler/Compiler/Template/CodegenC.tpl b/OMCompiler/Compiler/Template/CodegenC.tpl
+index 83c305d68d..0f5158e9c1 100644
+--- a/OMCompiler/Compiler/Template/CodegenC.tpl
++++ b/OMCompiler/Compiler/Template/CodegenC.tpl
+@@ -3816,14 +3816,28 @@ template generateStaticInitialData(list<ComponentRef> crefs, String indexName, S
+   let bodyStaticData = (crefs |> cr hasindex i0 =>
+     let cComment = '/* static nls data for <%crefStrNoUnderscore(cr)%> */'
+     if nlsResizableCref(cr) then
+-        <<
+-        <%cComment%>
+-        for (k_ = 0; k_ < <%nlsCount(cr)%>; k_++) {
+-          sysData->nominal[i] = 1.0;
+-          sysData->min[i]     = -DBL_MAX;
+-          sysData->max[i++]   = DBL_MAX;
+-        }
+-        >>
++      match cref2simvar(crefRemovePrePrefix(cr), getSimCode())
++        case v as SIMVAR(type_=T_REAL(__))
++        case v as SIMVAR(type_=T_ARRAY(ty=T_REAL(__))) then
++          let kind = lsVarKind(v)
++          let first = realScalarIndex(v)
++          <<
++          <%cComment%>
++          for (k_ = 0; k_ < <%nlsCount(cr)%>; k_++) {
++            sysData->nominal[i] = getNominalFromScalarIdx(data->simulationInfo, data->modelData, <%kind%>, <%first%> + k_);
++            sysData->min[i]     = getMinFromScalarIdx(data->simulationInfo, data->modelData, VAR_TYPE_REAL, <%kind%>, <%first%> + k_);
++            sysData->max[i++]   = getMaxFromScalarIdx(data->simulationInfo, data->modelData, VAR_TYPE_REAL, <%kind%>, <%first%> + k_);
++          }
++          >>
++        else
++          <<
++          <%cComment%>
++          for (k_ = 0; k_ < <%nlsCount(cr)%>; k_++) {
++            sysData->nominal[i] = 1.0;
++            sysData->min[i]     = -DBL_MAX;
++            sysData->max[i++]   = DBL_MAX;
++          }
++          >>
+     else
+     match cref2simvar(crefRemovePrePrefix(cr), getSimCode())
+       case SIMVAR(type_=T_REAL(__)) then
+@@ -3902,6 +3916,14 @@ template nlsResizable(list<ComponentRef> crefs)
+ ::= (crefs |> cr => match cref2simvar(cr, getSimCode()) case v as SIMVAR(__) then if isWholeResizableArray(cr, v) then "1" ;separator="")
+ end nlsResizable;
+ 
++template realScalarIndex(SimVar var)
++ "the scalar index of the first element of a real variable at runtime"
++::=
++  match var
++    case SIMVAR(varKind=PARAM()) then 'data->simulationInfo->realParamsIndex[<%index%>]'
++    case SIMVAR(__) then 'data->simulationInfo->realVarsIndex[<%index%>]'
++end realScalarIndex;
++
+ template nlsResizableCref(ComponentRef cr)
+ ::= match cref2simvar(cr, getSimCode()) case v as SIMVAR(__) then if isWholeResizableArray(cr, v) then "1"
+ end nlsResizableCref;
+diff --git a/OMCompiler/Compiler/Template/CodegenCFunctions.tpl b/OMCompiler/Compiler/Template/CodegenCFunctions.tpl
+index 6c01e833b0..e58cea13db 100644
+--- a/OMCompiler/Compiler/Template/CodegenCFunctions.tpl
++++ b/OMCompiler/Compiler/Template/CodegenCFunctions.tpl
+@@ -9018,7 +9018,7 @@ template startArrayEnsureSize(ComponentRef cr)
+   written into it, it has to hold one element per array element."
+ ::=
+   match getDimensionSizes(crefTypeFull(crefStripSubs(popCref(cr))))
+-  case sizes as _::_ then
++  case _::_ then
+     match cref2simvar(crefStripSubs(popCref(cr)), getSimCode())
+     case var as SIMVAR(__) then
+       let ty = crefShortType(name)
+@@ -9027,7 +9027,7 @@ template startArrayEnsureSize(ComponentRef cr)
+         case "integer"
+         case "boolean" then
+           let &nosub = buffer ""
+-          let size = if isSymbolicArrayVar(var) then varSizeRuntime(var) else (sizes ; separator="*")
++          let size = if isSymbolicArrayVar(var) then varSizeRuntime(var) else typeSizeRuntime(crefTypeFull(crefStripSubs(popCref(cr))))
+           '<%ty%>_array_ensure_size(&<%varAttributes(var, &nosub)%>.start, <%size%>);'
+         else ""
+     else ""
+@@ -9044,6 +9044,16 @@ template varSizeRuntime(SimVar var)
+   '(<%daeExp(simVarSizeExp(var), contextSimulationNonDiscrete, &preExp, &varDecls, &varFrees, &aux)%>)'
+ end varSizeRuntime;
+ 
++template typeSizeRuntime(DAE.Type ty)
++ "the number of elements of an array type at runtime"
++::=
++  let &preExp = buffer ""
++  let &varDecls = buffer ""
++  let &varFrees = buffer ""
++  let &aux = buffer ""
++  '(<%daeExp(typeSizeExp(ty), contextSimulationNonDiscrete, &preExp, &varDecls, &varFrees, &aux)%>)'
++end typeSizeRuntime;
++
+ template startArrayScatterEnsureSize(ComponentRef cr, Text type, Text arr)
+  "Without --simCodeScalarize the array is one VarsData entry. Its start
+   attribute may hold a single value for all elements (each), so it gets one per
+diff --git a/OMCompiler/Compiler/Template/SimCodeTV.mo b/OMCompiler/Compiler/Template/SimCodeTV.mo
+index 853c6ddea2..4a7c9971ad 100644
+--- a/OMCompiler/Compiler/Template/SimCodeTV.mo
++++ b/OMCompiler/Compiler/Template/SimCodeTV.mo
+@@ -1569,6 +1569,11 @@ package SimCodeCodegenUtil
+     output DAE.Exp exp;
+   end simVarSizeExp;
+ 
++  function typeSizeExp
++    input DAE.Type ty;
++    output DAE.Exp exp;
++  end typeSizeExp;
++
+   function simVarDimExps
+     input SimCodeVar.SimVar var;
+     output list<DAE.Exp> exps;
+diff --git a/OMCompiler/SimulationRuntime/c/simulation/solver/kinsolSolver.c b/OMCompiler/SimulationRuntime/c/simulation/solver/kinsolSolver.c
+index f1059e59df..1416a23735 100644
+--- a/OMCompiler/SimulationRuntime/c/simulation/solver/kinsolSolver.c
++++ b/OMCompiler/SimulationRuntime/c/simulation/solver/kinsolSolver.c
+@@ -558,7 +558,7 @@ static int nlsKinsolDenseDerivativeTest(DATA *data, NONLINEAR_SYSTEM_DATA *nlsDa
+           if (!errorFound)
+           {
+             infoStreamPrint(OMC_LOG_NLS_DERIVATIVE_TEST, 1, "Column / Variable: %i, Name: %s",
+-            col + 1, modelInfoGetEquation(&data->modelData->modelDataXml, nlsData->equationIndex).vars[col]);
++            col + 1, col < modelInfoGetEquation(&data->modelData->modelDataXml, nlsData->equationIndex).numVar && modelInfoGetEquation(&data->modelData->modelDataXml, nlsData->equationIndex).vars[col] ? modelInfoGetEquation(&data->modelData->modelDataXml, nlsData->equationIndex).vars[col] : "");
+             infoStreamPrint(OMC_LOG_NLS_DERIVATIVE_TEST, 0, "%-12s %-6s %-6s %-15s  %-15s  %-8s",
+                             "Type", "Col", "Row", "Symbolic", "Numerical", "RelError");
+             errorFound = TRUE;
+@@ -574,7 +574,7 @@ static int nlsKinsolDenseDerivativeTest(DATA *data, NONLINEAR_SYSTEM_DATA *nlsDa
+         if (!errorFound)
+         {
+           infoStreamPrint(OMC_LOG_NLS_DERIVATIVE_TEST, 1, "Column / Variable: %i, Name: %s",
+-                          col + 1, modelInfoGetEquation(&data->modelData->modelDataXml, nlsData->equationIndex).vars[col]);
++                          col + 1, col < modelInfoGetEquation(&data->modelData->modelDataXml, nlsData->equationIndex).numVar && modelInfoGetEquation(&data->modelData->modelDataXml, nlsData->equationIndex).vars[col] ? modelInfoGetEquation(&data->modelData->modelDataXml, nlsData->equationIndex).vars[col] : "");
+           infoStreamPrint(OMC_LOG_NLS_DERIVATIVE_TEST, 0, "%-12s %-6s %-6s %-15s  %-15s  %-8s",
+                           "Type", "Col", "Row", "Symbolic", "Numerical", "RelError");
+           errorFound = TRUE;
+@@ -1323,8 +1323,8 @@ static modelica_boolean nlsKinsolErrorHandler(int errorCode, DATA *data,
+ /**
+  * @brief Set sign constraints from the min and max attributes of the iteration variables.
+  *
+- * Only for variables whose initial guess already fulfills the constraint,
+- * otherwise KINSol() rejects the initial guess.
++ * Only for variables whose initial guess fulfills the constraint clearly,
++ * otherwise KINSol() rejects the initial guess or cannot leave the bound.
+  *
+  * @param kinsolData  Kinsol data with the initial guess.
+  * @param nlsData     Nonlinear system data with min and max values.
+@@ -1333,6 +1333,7 @@ static void nlsKinsolSetConstraints(NLS_KINSOL_DATA *kinsolData, NONLINEAR_SYSTE
+   int i, flag;
+   double *x = NV_DATA_S(kinsolData->initialGuess);
+   double *c = NV_DATA_S(kinsolData->constraints);
++  double tol;
+ 
+   if (nlsData->min == NULL || nlsData->max == NULL) {
+     return;
+@@ -1340,10 +1341,11 @@ static void nlsKinsolSetConstraints(NLS_KINSOL_DATA *kinsolData, NONLINEAR_SYSTE
+ 
+   for (i = 0; i < kinsolData->size; i++) {
+     c[i] = 0.0;
+-    /* a variable on the bound would block every step that points outside */
+-    if (nlsData->min[i] >= 0.0 && x[i] > 0.0) {
++    /* a variable on the bound, up to rounding, would block every step that points outside */
++    tol = sqrt(DBL_EPSILON) * fabs(nlsData->nominal[i]);
++    if (nlsData->min[i] >= 0.0 && x[i] > tol) {
+       c[i] = nlsData->min[i] > 0.0 ? 2.0 : 1.0;    /* x > 0 or x >= 0 */
+-    } else if (nlsData->max[i] <= 0.0 && x[i] < 0.0) {
++    } else if (nlsData->max[i] <= 0.0 && x[i] < -tol) {
+       c[i] = nlsData->max[i] < 0.0 ? -2.0 : -1.0;  /* x < 0 or x <= 0 */
+     }
+   }
+@@ -1423,10 +1425,9 @@ NLS_SOLVER_STATUS nlsKinsolSolve(DATA* data, threadData_t* threadData, NONLINEAR
+     } else {
+       infoStreamPrint(OMC_LOG_NLS_V, 0, "KINSol finished with errorCode %d.", flag);
+     }
+-    /* a step below the tolerance without any iteration only solves the system if the residual is small */
++    /* a step below the tolerance only solves the system if the residual is small */
+     stalled = FALSE;
+-    KINGetNumNonlinSolvIters(kinsolData->kinsolMemory, &nFEval);
+-    if (flag == KIN_STEP_LT_STPTOL && nFEval == 0) {
++    if (flag == KIN_STEP_LT_STPTOL) {
+       /* KINGetFuncNorm is not set if no step was taken, evaluate the scaled residual */
+       nlsKinsolResiduals(kinsolData->initialGuess, kinsolData->fRes, kinsolData->userData);
+       fNormValue = N_VWL2Norm(kinsolData->fRes, kinsolData->fScale);
+diff --git a/OMCompiler/SimulationRuntime/c/simulation/solver/nonlinearSystem.c b/OMCompiler/SimulationRuntime/c/simulation/solver/nonlinearSystem.c
+index 175ed6ecdf..49afc115be 100644
+--- a/OMCompiler/SimulationRuntime/c/simulation/solver/nonlinearSystem.c
++++ b/OMCompiler/SimulationRuntime/c/simulation/solver/nonlinearSystem.c
+@@ -821,13 +821,16 @@ void printNonLinearSystemSolvingStatistics(NONLINEAR_SYSTEM_DATA* nonlinsys, enu
+ void printNonLinearInitialInfo(int logName, DATA* data, NONLINEAR_SYSTEM_DATA *nonlinsys)
+ {
+   long i;
++  EQUATION_INFO eqInfo;
+ 
+   if (!OMC_ACTIVE_STREAM(logName)) return;
+   infoStreamPrint(logName, 1, "initial variable values:");
+ 
++  /* a resizable system lists one name per array */
++  eqInfo = modelInfoGetEquation(&data->modelData->modelDataXml, nonlinsys->equationIndex);
+   for(i=0; i<nonlinsys->size; i++)
+     infoStreamPrint(logName, 0, "[%2ld] %30s  = %16.8g\t\t nom = %16.8g", i+1,
+-                    modelInfoGetEquation(&data->modelData->modelDataXml,nonlinsys->equationIndex).vars[i],
++                    i < eqInfo.numVar && eqInfo.vars[i] ? eqInfo.vars[i] : "",
+                     nonlinsys->nlsx[i], nonlinsys->nominal[i]);
+   messageClose(logName);
+ }
+@@ -843,6 +846,7 @@ void printNonLinearInitialInfo(int logName, DATA* data, NONLINEAR_SYSTEM_DATA *n
+ void printNonLinearFinishInfo(int logName, DATA* data, NONLINEAR_SYSTEM_DATA *nonlinsys)
+ {
+   long i;
++  EQUATION_INFO eqInfo;
+ 
+   if (!OMC_ACTIVE_STREAM(logName)) return;
+ 
+@@ -865,9 +869,10 @@ void printNonLinearFinishInfo(int logName, DATA* data, NONLINEAR_SYSTEM_DATA *no
+   infoStreamPrint(logName, 0, " number of function evaluations : %ld", nonlinsys->numberOfFEval);
+   infoStreamPrint(logName, 0, " number of jacobian evaluations : %ld", nonlinsys->numberOfJEval);
+   infoStreamPrint(logName, 0, "solution values:");
++  eqInfo = modelInfoGetEquation(&data->modelData->modelDataXml, nonlinsys->equationIndex);
+   for(i=0; i<nonlinsys->size; i++)
+     infoStreamPrint(logName, 0, "[%2ld] %30s  = %16.8g", i+1,
+-                    modelInfoGetEquation(&data->modelData->modelDataXml,nonlinsys->equationIndex).vars[i],
++                    i < eqInfo.numVar && eqInfo.vars[i] ? eqInfo.vars[i] : "",
+                     nonlinsys->nlsx[i]);
+ 
+   messageClose(logName);
+diff --git a/OMCompiler/SimulationRuntime/rust/openmodelica_nls/src/kinsol.rs b/OMCompiler/SimulationRuntime/rust/openmodelica_nls/src/kinsol.rs
+index 2eb753d2bf..578e2942ac 100644
+--- a/OMCompiler/SimulationRuntime/rust/openmodelica_nls/src/kinsol.rs
++++ b/OMCompiler/SimulationRuntime/rust/openmodelica_nls/src/kinsol.rs
+@@ -460,8 +460,8 @@ pub mod sun {
+         }
+ 
+         /// C's `nlsKinsolSetConstraints`: keep the sign of a variable with a
+-        /// non-negative min or non-positive max, if the start point has it.
+-        fn set_constraints(&mut self, min: &[f64], max: &[f64]) {
++        /// non-negative min or non-positive max, if the start point has it clearly.
++        fn set_constraints(&mut self, min: &[f64], max: &[f64], nominal: &[f64]) {
+             let x = data(self.u, self.n);
+             let c = data(self.constraints, self.n);
+             for i in 0..self.n {
+@@ -469,10 +469,11 @@ pub mod sun {
+                     min.get(i).copied().unwrap_or(f64::MIN),
+                     max.get(i).copied().unwrap_or(f64::MAX),
+                 );
+-                // a variable on the bound would block every step that points outside
+-                c[i] = if lo >= 0.0 && x[i] > 0.0 {
++                // a variable on the bound, up to rounding, would block every step that points outside
++                let tol = fmath::sqrt(f64::EPSILON) * fmath::fabs(nominal.get(i).copied().unwrap_or(1.0));
++                c[i] = if lo >= 0.0 && x[i] > tol {
+                     if lo > 0.0 { 2.0 } else { 1.0 }
+-                } else if hi <= 0.0 && x[i] < 0.0 {
++                } else if hi <= 0.0 && x[i] < -tol {
+                     if hi < 0.0 { -2.0 } else { -1.0 }
+                 } else {
+                     0.0
+@@ -588,15 +589,15 @@ pub mod sun {
+                 self.x_scaling(nominal);
+                 self.f_scaling(&mut ud);
+                 self.max_newton_step();
+-                self.set_constraints(pat.min, pat.max);
++                self.set_constraints(pat.min, pat.max, nominal);
+                 let flag = unsafe { KINSol(self.kin, self.u, self.strategy, self.xscale, self.fscale) };
+                 let mut iters: c_long = 0;
+                 unsafe { KINGetNumNonlinSolvIters(self.kin, &mut iters) };
+                 crate::note_nls_iters(iters.max(0) as u64);
+-                // a step below the tolerance without any iteration only solves the system if the residual
+-                // is small (KINGetFuncNorm is not set if no step was taken, evaluate the scaled residual)
++                // a step below the tolerance only solves the system if the residual is small
++                // (KINGetFuncNorm is not set if no step was taken, evaluate the scaled residual)
+                 let mut stalled = false;
+-                if flag == KIN_STEP_LT_STPTOL && iters == 0 {
++                if flag == KIN_STEP_LT_STPTOL {
+                     let x = data(self.u, self.n).to_vec();
+                     let mut f = vec![0.0f64; self.n];
+                     (ud.eval)(&x, &mut f);
+diff --git a/OMSimulator b/OMSimulator
+index 414e377093..ffc28b11a9 160000
+--- a/OMSimulator
++++ b/OMSimulator
+@@ -1 +1 @@
+-Subproject commit 414e37709307bb5ecad50360bb828bb3430902f7
++Subproject commit ffc28b11a9094c1403c33342ebc16a399041fb12
+diff --git a/testsuite/simulation/modelica/nonlinear_system/Makefile b/testsuite/simulation/modelica/nonlinear_system/Makefile
+index 8d82429693..348ab03df5 100644
+--- a/testsuite/simulation/modelica/nonlinear_system/Makefile
++++ b/testsuite/simulation/modelica/nonlinear_system/Makefile
+@@ -1,6 +1,7 @@
+ TEST = ../../../rtest -v
+ 
+ TESTFILES = \
++kinsolBoundStart.mos \
+ bug_2841.mos \
+ bug_3527.mos \
+ externalErrorThenThrow.mos \

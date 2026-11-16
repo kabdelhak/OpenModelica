@@ -1,0 +1,81 @@
+diff --git a/OMCompiler/Compiler/NBackEnd/Util/NBAdjacency.mo b/OMCompiler/Compiler/NBackEnd/Util/NBAdjacency.mo
+index 4e09f3658b..0723f5f31c 100644
+--- a/OMCompiler/Compiler/NBackEnd/Util/NBAdjacency.mo
++++ b/OMCompiler/Compiler/NBackEnd/Util/NBAdjacency.mo
+@@ -1327,10 +1327,16 @@ public
+         "a slice (e.g. i[1:2]) whose elements are seeds depends on each of the elements"
+         input ComponentRef cref;
+         input UnorderedMap<ComponentRef, ComponentRef> diff_map;
++        input UnorderedMap<ComponentRef, list<ComponentRef>> cache;
+         output list<ComponentRef> crefs;
+       protected
+         Type ty;
++        Option<list<ComponentRef>> cached = UnorderedMap.get(cref, cache);
+       algorithm
++        if isSome(cached) then
++          SOME(crefs) := cached;
++          return;
++        end if;
+         crefs := {cref};
+         if not (UnorderedMap.contains(cref, diff_map) or UnorderedMap.contains(ComponentRef.stripSubscriptsAll(cref), diff_map)) then
+           ty := ComponentRef.getSubscriptedType(cref);
+@@ -1339,6 +1345,7 @@ public
+             if listEmpty(crefs) then
+               crefs := {cref};
+             end if;
++            UnorderedMap.add(cref, crefs, cache);
+           end if;
+         end if;
+       end expandSlice;
+@@ -1371,6 +1378,7 @@ public
+           list<ComponentRef> iter_names;
+           UnorderedSet<ComponentRef> own_iters;
+           UnorderedMap<ComponentRef, Dependencies> seed_elements = UnorderedMap.new<Dependencies>(ComponentRef.hash, ComponentRef.isEqual);
++          UnorderedMap<ComponentRef, Dependencies> slice_elements = UnorderedMap.new<Dependencies>(ComponentRef.hash, ComponentRef.isEqual);
+           UnorderedSet<ComponentRef> no_iters = UnorderedSet.new(ComponentRef.hash, ComponentRef.isEqual);
+           UnorderedMap<ComponentRef, SliceAliases> slice_map = UnorderedMap.new<SliceAliases>(ComponentRef.hash, ComponentRef.isEqual);
+           UnorderedMap<ComponentRef, InnerTemplates> template_map = UnorderedMap.new<InnerTemplates>(ComponentRef.hash, ComponentRef.isEqual);
+@@ -1535,7 +1543,7 @@ public
+                   // ToDo: combine dependencies
+                   (inner_deps, dep, repeated) := tpl;
+                   inner_deps := List.flatten(list(sparsityExpandForeignIterators(c, own_iters, seed_elements) for c in inner_deps));
+-                  for dep_cref in List.flatten(list(expandSlice(c, diff_map) for c in inner_deps)) loop
++                  for dep_cref in List.flatten(list(expandSlice(c, diff_map, slice_elements) for c in inner_deps)) loop
+                     if filterSet(dep_cref, seed_set) then
+                       // Try subscripted key first (NLS with per-element scalar seeds), then
+                       // base key with subscript copy (ODE/DAE with full-array base seeds).
+@@ -1573,7 +1581,7 @@ public
+                 else
+                   inner_deps := UnorderedMap.keyList(eqn_deps);
+                 end if;
+-                inner_deps := List.filterOnTrue(List.flatten(list(expandSlice(c, diff_map) for c in inner_deps)), function filterSet(set = seed_set));
++                inner_deps := List.filterOnTrue(List.flatten(list(expandSlice(c, diff_map, slice_elements) for c in inner_deps)), function filterSet(set = seed_set));
+                 for cref in pder_crefs loop
+                   sparsityAddInner(cref, inner_deps, inner_map, inner_keys);
+                   sparsityAddTemplate(sparsityTemplateKey(cref, template_crefs), inner_deps, template_map);
+@@ -1623,7 +1631,7 @@ public
+                 end if;
+ 
+                 // filter inner dependencies for relevant seeds and add
+-                inner_deps := List.filterOnTrue(List.flatten(list(expandSlice(c, diff_map) for c in inner_deps)), function filterSet(set = seed_set));
++                inner_deps := List.filterOnTrue(List.flatten(list(expandSlice(c, diff_map, slice_elements) for c in inner_deps)), function filterSet(set = seed_set));
+                 // with resizable arrays the variables of an algebraic loop depend on whole arrays,
+                 // the iterators of its equations do not correspond to the ones of other equations
+                 // (dependencies without iterators, e.g. x[2, N], stay exact)
+@@ -2728,7 +2736,7 @@ public
+       "a dependency with iterators of another (inner) equation depends on all its seed elements"
+       input ComponentRef cref;
+       input UnorderedSet<ComponentRef> own_iters;
+-      input UnorderedMap<ComponentRef, list<ComponentRef>> seed_elements "base name -> element seeds";
++      input UnorderedMap<ComponentRef, list<ComponentRef>> seed_elements "base name -> element seeds, or all elements once they were expanded";
+       output list<ComponentRef> crefs = {cref};
+     protected
+       ComponentRef base;
+@@ -2741,6 +2749,7 @@ public
+         else
+           ty := ComponentRef.getSubscriptedType(base);
+           crefs := if Type.isArray(ty) and Type.sizeOf(ty) <= 1024 then ComponentRef.scalarizeAll(base, false) else {base};
++          UnorderedMap.add(base, crefs, seed_elements);
+         end if;
+       end if;
+     end sparsityExpandForeignIterators;

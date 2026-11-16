@@ -1,0 +1,196 @@
+diff --git a/OMCompiler/Compiler/NFFrontEnd/NFFlatten.mo b/OMCompiler/Compiler/NFFrontEnd/NFFlatten.mo
+index 6cd4e1841d..bc2eb9e757 100644
+--- a/OMCompiler/Compiler/NFFrontEnd/NFFlatten.mo
++++ b/OMCompiler/Compiler/NFFrontEnd/NFFlatten.mo
+@@ -1335,9 +1335,23 @@ protected
+   list<Equation> eql;
+   Type ty;
+   Expression lhs, rhs;
+-algorithm
+-  // Flatten with an empty prefix to get rid of any split indices.
+-  eql := flattenEquation(eqn, EMPTY_PREFIX, {}, settings);
++  InstNode node = ComponentRef.node(Prefix.prefix(prefix));
++  Boolean split;
++  list<InstNode> iters = {};
++  list<Expression> ranges = {};
++  list<Subscript> subs = {};
++algorithm
++  // Split indices of this component in expressions, e.g. {2, 3}[<lay, 1>] from T[end] with
++  // differently sized elements, become the iterators. Flattening would expand them to {2, 3}.
++  split := Equation.containsExp(eqn, function Expression.contains(func = function isSplitOfNode(node = node)));
++  if split then
++    (iters, ranges, subs) := makeIterators(Prefix.prefix(prefix), dimensions);
++    subs := listReverse(subs);
++    eql := flattenEquation(Equation.mapExp(eqn, function replaceSplitIndicesOfNode(node = node, subscripts = subs)), EMPTY_PREFIX, {}, settings);
++  else
++    // Flatten with an empty prefix to get rid of any split indices.
++    eql := flattenEquation(eqn, EMPTY_PREFIX, {}, settings);
++  end if;
+ 
+   for eq in eql loop
+     equations := match eq
+@@ -1346,7 +1360,7 @@ algorithm
+       //            will lead to complicated code if not index or whole dim
+       //            and we are better off just using for loops for these
+       case Equation.EQUALITY(lhs = lhs as Expression.CREF(), rhs = rhs as Expression.CREF())
+-        guard(not Flags.getConfigBool(Flags.NEW_BACKEND)
++        guard not split and (not Flags.getConfigBool(Flags.NEW_BACKEND)
+           or (List.all(ComponentRef.subscriptsAllWithWholeFlat(lhs.cref), Subscript.isSimple)
+           and List.all(ComponentRef.subscriptsAllWithWholeFlat(rhs.cref), Subscript.isSimple)))
+         algorithm
+@@ -1364,7 +1378,7 @@ algorithm
+       // wrap general equation into for loop
+       else
+         algorithm
+-          eq := vectorizeEquationGeneric(eq, dimensions, prefix);
++          eq := vectorizeEquationGeneric(eq, dimensions, prefix, iters, ranges, subs);
+         then
+           splitForLoop(eq, EMPTY_PREFIX, equations, settings);
+ 
+@@ -1376,18 +1390,23 @@ function vectorizeEquationGeneric
+   input Equation eqn;
+   input list<Dimension> dimensions;
+   input Prefix prefix;
++  input list<InstNode> iterators "created here if empty";
++  input list<Expression> iteratorRanges;
++  input list<Subscript> iteratorSubscripts;
+   output Equation vectorizedEqn;
+ protected
+   InstNode iter;
+-  list<InstNode> iters;
++  list<InstNode> iters = iterators;
+   Expression range;
+-  list<Expression> ranges;
+-  list<Subscript> subs;
++  list<Expression> ranges = iteratorRanges;
++  list<Subscript> subs = iteratorSubscripts;
+   NFInstNode.ScopeRef scope;
+   DAE.ElementSource src;
+ algorithm
+-  (iters, ranges, subs) := makeIterators(Prefix.prefix(prefix), dimensions);
+-  subs := listReverseInPlace(subs);
++  if listEmpty(iters) then
++    (iters, ranges, subs) := makeIterators(Prefix.prefix(prefix), dimensions);
++    subs := listReverseInPlace(subs);
++  end if;
+   vectorizedEqn := Equation.mapExp(eqn, function addIterator(prefix = prefix, subscripts = subs));
+   scope := Equation.scopeCell(eqn);
+   src := Equation.source(eqn);
+@@ -1399,6 +1418,52 @@ algorithm
+   end while;
+ end vectorizeEquationGeneric;
+ 
++function isSplitOfNode
++  input Expression exp;
++  input InstNode node;
++  output Boolean res;
++algorithm
++  res := match exp
++    case Expression.SUBSCRIPTED_EXP(split = true)
++      then List.any(exp.subscripts, function isSplitIndexOfNode(node = node));
++    else false;
++  end match;
++end isSplitOfNode;
++
++function isSplitIndexOfNode
++  input Subscript sub;
++  input InstNode node;
++  output Boolean res;
++algorithm
++  res := match sub
++    case Subscript.SPLIT_INDEX() then InstNode.refEqual(InstNode.borrow(sub.node), node);
++    else false;
++  end match;
++end isSplitIndexOfNode;
++
++function replaceSplitIndicesOfNode
++  input output Expression exp;
++  input InstNode node;
++  input list<Subscript> subscripts;
++algorithm
++  exp := Expression.map(exp, function replaceSplitIndicesOfNode2(node = node, subscripts = subscripts));
++end replaceSplitIndicesOfNode;
++
++function replaceSplitIndicesOfNode2
++  input output Expression exp;
++  input InstNode node;
++  input list<Subscript> subscripts;
++algorithm
++  () := match exp
++    case Expression.SUBSCRIPTED_EXP(split = true) guard isSplitOfNode(exp, node)
++      algorithm
++        exp.subscripts := list(match s case Subscript.SPLIT_INDEX() guard isSplitIndexOfNode(s, node)
++          then listGet(subscripts, s.dimIndex); else s; end match for s in exp.subscripts);
++      then ();
++    else ();
++  end match;
++end replaceSplitIndicesOfNode2;
++
+ function vectorizeAlgorithms
+   input list<Algorithm> algs;
+   input list<Dimension> dimensions;
+@@ -1658,7 +1723,7 @@ algorithm
+ 
+     case Expression.SUBSCRIPTED_EXP(split = true)
+       then Expression.mapShallow(
+-        replaceSplitIndices(exp.exp, exp.subscripts, prefix, info),
++        replaceSplitIndices(exp.exp, exp.subscripts, exp.ty, prefix, info),
+         function flattenExp(prefix = prefix, info = info));
+ 
+     case Expression.IF(ty = Type.CONDITIONAL_ARRAY())
+@@ -1676,17 +1741,24 @@ end flattenExp;
+ function replaceSplitIndices
+   input output Expression exp;
+   input list<Subscript> subscripts;
++  input Type ty;
+   input Prefix prefix;
+   input SourceInfo info;
+ protected
+   list<Subscript> subs = subscripts, cr_subs;
+   Integer index;
+   InstNode cr_node;
++  list<InstNode> vectorized = {};
+ algorithm
+   for cr in ComponentRef.toListReverse(Prefix.indexedPrefix(prefix)) loop
+     cr_subs := ComponentRef.getSubscripts(cr);
+ 
+-    if not listEmpty(cr_subs) then
++    if listEmpty(cr_subs) then
++      // a vectorized component array, see vectorizeEquation
++      if Type.isArray(ComponentRef.nodeType(cr)) then
++        vectorized := ComponentRef.node(cr) :: vectorized;
++      end if;
++    else
+       index := 1;
+       cr_node := ComponentRef.node(cr);
+ 
+@@ -1698,9 +1770,14 @@ algorithm
+     end if;
+   end for;
+ 
+-  subs := Subscript.expandSplitIndices(subs);
+-  exp := Expression.applySubscripts(subs, exp);
+-  exp := flattenExp(exp, prefix, info);
++  subs := Subscript.expandSplitIndices(subs, vectorized);
++
++  if List.any(subs, Subscript.isSplitIndex) then
++    exp := Expression.SUBSCRIPTED_EXP(exp, subs, ty, true);
++  else
++    exp := Expression.applySubscripts(subs, exp);
++    exp := flattenExp(exp, prefix, info);
++  end if;
+ end replaceSplitIndices;
+ 
+ function replaceSplitIndices2
+@@ -1801,6 +1878,11 @@ algorithm
+         then
+           flattenExp(if cond.value then tb else fb, prefix, info);
+ 
++      // A condition that differs between the elements of a vectorized component array,
++      // e.g. (if s then cat(1, {a}, b) else c)[<T, 1>]: element-wise the branches agree.
++      case _ guard Type.isEqual(Expression.typeOf(tb), Expression.typeOf(fb))
++        then Expression.IF(Expression.typeOf(tb), cond, flattenExp(tb, prefix, info), flattenExp(fb, prefix, info));
++
+       else
+         algorithm
+           // The condition couldn't be evaluated, print an error and fail.

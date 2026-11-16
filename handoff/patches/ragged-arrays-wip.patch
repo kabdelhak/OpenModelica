@@ -1,0 +1,115 @@
+diff --git a/OMCompiler/Compiler/NFFrontEnd/NFFlatten.mo b/OMCompiler/Compiler/NFFrontEnd/NFFlatten.mo
+index 6cd4e1841d..7e2fddf737 100644
+--- a/OMCompiler/Compiler/NFFrontEnd/NFFlatten.mo
++++ b/OMCompiler/Compiler/NFFrontEnd/NFFlatten.mo
+@@ -95,6 +95,7 @@ import SimplifyExp = NFSimplifyExp;
+ import Restriction = NFRestriction;
+ import EvalConstants = NFEvalConstants;
+ import SimplifyModel = NFSimplifyModel;
++import Scalarize = NFScalarize;
+ import InstNodeType = NFInstNode.InstNodeType;
+ import ExpandableConnectors = NFExpandableConnectors;
+ import SCode;
+@@ -958,6 +959,8 @@ protected
+   Type ty;
+   Prefix pre;
+   SourceInfo info;
++  FlattenSettings scalar_settings;
++  list<Variable> vars_arr;
+ algorithm
+   info := InstNode.info(node);
+   ty := flattenType(nodeTy, prefix, info);
+@@ -1042,11 +1045,81 @@ algorithm
+       verifyDimensions(dims, node);
+       (vars, sections) := flattenArray(cls, dims, pre, visibility, opt_binding, vars, sections, {}, deletedVars, info, settings);
+     end if;
++  elseif hasElementDependentDimensions(cls, node) then
++    // The elements have different array sizes, e.g. T[n] with n = {2, 3}, which a vectorized variable can not represent.
++    dims := list(flattenDimension(d, pre, info) for d in dims);
++    verifyDimensions(dims, node);
++    scalar_settings := settings;
++    scalar_settings.scalarize := true;
++    scalar_settings.vectorizeBindings := false;
++    (vars_arr, sections) := flattenArray(cls, dims, Prefix.toNonIndexedPrefix(pre), visibility, opt_binding, {}, sections, {}, deletedVars, info, scalar_settings);
++    for v in listReverse(vars_arr) loop
++      vars := Scalarize.scalarizeVariable(v, vars);
++    end for;
+   else
+     (vars, sections) := vectorizeArray(cls, ty, dims, pre, visibility, opt_binding, vars, sections, {}, deletedVars, settings);
+   end if;
+ end flattenComplexComponent;
+ 
++function hasElementDependentDimensions
++  "true if a dimension of a component in cls depends on the element of the array node"
++  input Class cls;
++  input InstNode node;
++  output Boolean res = false;
++protected
++  array<InstNode> comps;
++algorithm
++  () := match cls
++    case Class.INSTANCED_CLASS(elements = ClassTree.FLAT_TREE(components = comps))
++      algorithm
++        for c in comps loop
++          if InstNode.isComponent(c) then
++            res := List.any(Type.arrayDims(InstNode.getType(c)), function isElementDependentDimension(node = node))
++              or hasElementDependentDimensions(InstNode.getClass(c), node);
++            if res then
++              return;
++            end if;
++          end if;
++        end for;
++      then ();
++    else ();
++  end match;
++end hasElementDependentDimensions;
++
++function isElementDependentDimension
++  input Dimension dim;
++  input InstNode node;
++  output Boolean res;
++algorithm
++  res := match dim
++    case Dimension.EXP() then Expression.contains(dim.exp, function isSplitOfNode(node = node));
++    else false;
++  end match;
++end isElementDependentDimension;
++
++function isSplitOfNode
++  input Expression exp;
++  input InstNode node;
++  output Boolean res;
++algorithm
++  res := match exp
++    case Expression.SUBSCRIPTED_EXP(split = true)
++      then List.any(exp.subscripts, function isSplitIndexOfNode(node = node));
++    else false;
++  end match;
++end isSplitOfNode;
++
++function isSplitIndexOfNode
++  input Subscript sub;
++  input InstNode node;
++  output Boolean res;
++algorithm
++  res := match sub
++    case Subscript.SPLIT_INDEX() then InstNode.refEqual(InstNode.borrow(sub.node), node);
++    else false;
++  end match;
++end isSplitIndexOfNode;
++
+ function splitRecordCref
+   input Expression exp;
+   output Expression outExp;
+@@ -1801,6 +1874,11 @@ algorithm
+         then
+           flattenExp(if cond.value then tb else fb, prefix, info);
+ 
++      // A condition that differs between the elements of a vectorized component array,
++      // e.g. (if s then cat(1, {a}, b) else c)[<T, 1>]: element-wise the branches agree.
++      case _ guard Type.isEqual(Expression.typeOf(tb), Expression.typeOf(fb))
++        then Expression.IF(Expression.typeOf(tb), cond, flattenExp(tb, prefix, info), flattenExp(fb, prefix, info));
++
+       else
+         algorithm
+           // The condition couldn't be evaluated, print an error and fail.
